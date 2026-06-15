@@ -38,6 +38,9 @@ yarn-error.*
 
 example
 
+# local reference repos for analysis
+references/
+
 # generated native folders
 /ios
 /android

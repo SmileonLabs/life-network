@@ -1,8 +1,27 @@
-# Welcome to your Expo app 👋
+# LIFE Wallet
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+Expo 기반 React Native / Web dApp입니다. LIFE 토큰 중심의 BNB Smart Chain 지갑 UX를 검증하기 위한 v1 구현입니다.
 
-## Get started
+## 구현 범위
+
+- Google 로그인 demo flow와 embedded wallet 생성 UX
+- LIFE, BNB, 자동 탐색된 BEP-20 토큰 대시보드
+- BNB/BEP-20 송금 검증과 activity 기록
+- 수신 QR, 토큰 상세, 지갑 가져오기, 지갑 전환
+- Web desktop sidebar + mobile bottom tab responsive shell
+
+현재 Privy 키와 import relay backend가 없으면 demo mode로 동작합니다. 실제 연동 시 아래 환경 변수를 연결하면 됩니다.
+
+```bash
+EXPO_PUBLIC_PRIVY_APP_ID=
+EXPO_PUBLIC_PRIVY_CLIENT_ID=
+EXPO_PUBLIC_LIFE_TOKEN_ADDRESS=
+EXPO_PUBLIC_BSC_RPC_URL=
+EXPO_PUBLIC_BSC_TESTNET_RPC_URL=
+EXPO_PUBLIC_EXPLORER_API_KEY=
+```
+
+## 실행
 
 1. Install dependencies
 
@@ -16,41 +35,35 @@ This is an [Expo](https://expo.dev) project created with [`create-expo-app`](htt
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+또는 플랫폼별로 바로 실행할 수 있습니다.
 
 ```bash
-npm run reset-project
+npm run web
+npm run android
+npm run ios
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+개발은 `src/app`의 페이지와 `src/features`의 기능 단위 모듈을 중심으로 진행하면 됩니다.
 
-### Other setup steps
+## 구조
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+```text
+src/app        Expo Router pages
+src/features   auth, wallet, tokens, transfer, activity, security
+src/shared     config, layout, theme, ui, utils
+src/providers  app-level providers
+```
 
-## Learn more
+## 검증
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+npm run typecheck
+npm run lint
+npx expo-doctor
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+## 참고
 
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+- [Expo documentation](https://docs.expo.dev/)
+- [Privy React Native setup](https://docs.privy.io/basics/react-native/setup)
+- [BNB Chain wallet configuration](https://docs.bnbchain.org/bnb-opbnb/get-started/wallet-configuration/)
