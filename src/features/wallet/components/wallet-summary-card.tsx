@@ -15,8 +15,6 @@ export function WalletSummaryCard() {
     return null;
   }
 
-  const sourceLabel = activeWallet.source === 'privy-generated' ? 'Google embedded' : 'Imported';
-
   return (
     <GlassCard intensity="strong" style={styles.card}>
       <View style={styles.row}>
@@ -30,7 +28,7 @@ export function WalletSummaryCard() {
           <AppText variant="subtitle">{activeWallet.label}</AppText>
         </View>
       </View>
-      <Badge label={sourceLabel} tone={activeWallet.source === 'privy-generated' ? 'cyan' : 'violet'} />
+      <Badge label="Main Wallet" tone="cyan" />
       <Pressable accessibilityRole="button" style={styles.addressRow}>
         <AppText variant="mono">{shortAddress(activeWallet.address)}</AppText>
         <Copy color={colors.textMuted} size={16} />

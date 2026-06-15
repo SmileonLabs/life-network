@@ -306,12 +306,13 @@ export function AssetListRow({ asset, href }: { asset: MockAsset; href?: Href })
   );
 }
 
-export function ActivityListRow({ activity }: { activity: MockActivity }) {
+export function ActivityListRow({ activity, href }: { activity: MockActivity; href?: Href }) {
   const incoming = activity.direction === 'in';
   const Icon = incoming ? ArrowDownLeft : ArrowUpRight;
 
   return (
     <Row
+      href={href}
       leading={
         <View style={[styles.activityIcon, incoming ? styles.activityIn : styles.activityOut]}>
           <Icon color={incoming ? toneColor.lime : toneColor.amber} size={18} />
@@ -467,16 +468,6 @@ export function Row({
   }
 
   return content;
-}
-
-export function PasswordDots({ count = 4 }: { count?: number }) {
-  return (
-    <View style={styles.passwordDots}>
-      {Array.from({ length: 6 }).map((_, index) => (
-        <View key={index} style={[styles.passwordDot, index < count && styles.passwordDotFilled]} />
-      ))}
-    </View>
-  );
 }
 
 export function BottomNav() {
@@ -766,22 +757,6 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     height: 6,
     width: 6,
-  },
-  passwordDot: {
-    backgroundColor: 'rgba(255, 255, 255, 0.12)',
-    borderRadius: 7,
-    height: 14,
-    width: 14,
-  },
-  passwordDotFilled: {
-    backgroundColor: toneColor.lime,
-  },
-  passwordDots: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 14,
-    justifyContent: 'center',
-    paddingVertical: 24,
   },
   row: {
     alignItems: 'center',

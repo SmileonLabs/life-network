@@ -17,6 +17,7 @@ export function SendForm() {
   const [recipient, setRecipient] = useState('');
   const [amount, setAmount] = useState('');
   const [resultHash, setResultHash] = useState('');
+  const [isSending, setIsSending] = useState(false);
 
   const selectedAsset = assets.find((asset) => asset.id === assetId) ?? assets[0];
   const validation = useMemo(
@@ -29,21 +30,27 @@ export function SendForm() {
     ? shortAddress(recipient.trim(), 8, 6)
     : 'Not ready';
 
-  function submitTransfer() {
+  async function submitTransfer() {
     if (!selectedAsset) {
       return;
     }
 
-    const activity = sendTransfer({
-      assetId: selectedAsset.id,
-      recipient,
-      amount,
-    });
+    setIsSending(true);
 
-    if (activity) {
-      setResultHash(activity.hash);
-      setAmount('');
-      setRecipient('');
+    try {
+      const activity = await sendTransfer({
+        assetId: selectedAsset.id,
+        recipient,
+        amount,
+      });
+
+      if (activity) {
+        setResultHash(activity.hash);
+        setAmount('');
+        setRecipient('');
+      }
+    } finally {
+      setIsSending(false);
     }
   }
 
@@ -180,9 +187,9 @@ export function SendForm() {
       )}
 
       <Button
-        disabled={!validation.isValid}
+        disabled={!validation.isValid || isSending}
         icon={<Send color={colors.black} size={18} />}
-        label="Review and send"
+        label={isSending ? 'Sending' : 'Review and send'}
         onPress={submitTransfer}
       />
     </View>

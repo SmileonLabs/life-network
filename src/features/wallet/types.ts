@@ -1,6 +1,6 @@
 import type { SupportedChainId } from '@/shared/config/chains';
 
-export type WalletSource = 'privy-generated' | 'privy-imported';
+export type WalletSource = 'privy-generated';
 
 export type WalletAccount = {
   id: string;
@@ -9,13 +9,5 @@ export type WalletAccount = {
   label: string;
   chainId: SupportedChainId;
   createdAt: string;
+  isPrivy: boolean;
 };
-
-export type WalletImportKind = 'seed-phrase' | 'private-key';
-
-export type WalletImportPreview = {
-  kind: WalletImportKind;
-  address: string;
-  wordCount?: number;
-};
-

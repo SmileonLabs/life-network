@@ -13,8 +13,6 @@ type WalletAccountRowProps = {
 };
 
 export function WalletAccountRow({ active = false, onPress, wallet }: WalletAccountRowProps) {
-  const sourceLabel = wallet.source === 'privy-generated' ? 'Embedded' : 'Imported';
-
   return (
     <Pressable
       accessibilityRole="button"
@@ -22,13 +20,13 @@ export function WalletAccountRow({ active = false, onPress, wallet }: WalletAcco
       style={StyleSheet.flatten([styles.row, active && styles.activeRow])}>
       <View style={styles.mark}>
         <AppText variant="caption" tone={active ? 'lime' : 'muted'}>
-          {sourceLabel.slice(0, 1)}
+          M
         </AppText>
       </View>
       <View style={styles.copy}>
         <AppText numberOfLines={1}>{wallet.label}</AppText>
         <AppText numberOfLines={1} variant="caption" tone="muted">
-          {sourceLabel} · {shortAddress(wallet.address)}
+          Main · {shortAddress(wallet.address)}
         </AppText>
       </View>
       {active && <CheckCircle2 color={colors.lime} size={18} />}

@@ -4,25 +4,29 @@ import {
   ArrowDownLeft,
   ArrowUpRight,
   Ban,
-  Bell,
   Check,
   ChevronRight,
+  Cloud,
   Copy,
+  Download,
+  Eye,
   EyeOff,
   KeyRound,
-  LockKeyhole,
+  LogOut,
   Plus,
   QrCode,
   Repeat2,
   Search,
   ShieldCheck,
   SlidersHorizontal,
+  Trash2,
   Wallet,
 } from 'lucide-react-native';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
+import { useAuthSession } from '@/features/auth/hooks/use-auth-session';
 import { mockActivities, mockAddress, mockAssets, mockWallets, totalValue, type MockActivity } from '@/features/mock-wallet/data';
 import {
   ActionRail,
@@ -89,7 +93,7 @@ export function HomeScreen() {
       <View style={styles.sectionBlock}>
         <SectionHeader actionHref="/activity" actionLabel="All" title="Recent activity" />
         {mockActivities.slice(0, 2).map((activity) => (
-          <ActivityListRow activity={activity} key={`${activity.title}-${activity.amount}`} />
+          <ActivityListRow activity={activity} href={{ pathname: '/activity/[hash]', params: { hash: activity.hash } }} key={activity.hash} />
         ))}
       </View>
     </AppScreen>
@@ -162,7 +166,7 @@ export function AssetDetailScreen() {
       <View style={styles.sectionBlock}>
         <SectionHeader title="Activity" />
         {tokenActivity.slice(0, 4).map((activity) => (
-          <ActivityListRow activity={activity} key={`${asset.address}-${activity.title}-${activity.amount}`} />
+          <ActivityListRow activity={activity} href={{ pathname: '/activity/[hash]', params: { hash: activity.hash } }} key={`${asset.address}-${activity.hash}`} />
         ))}
       </View>
     </AppScreen>
@@ -287,7 +291,7 @@ export function ReceiveScreen() {
 
       <View style={styles.warningPanel}>
         <AlertTriangle color="#F3BA2F" size={18} />
-        <AppText tone="muted">Only send BNB Smart Chain assets to this address.</AppText>
+        <AppText tone="muted">BSC only</AppText>
       </View>
     </AppScreen>
   );
@@ -306,7 +310,7 @@ export function ActivityScreen() {
         <View style={styles.sectionBlock} key={group.date}>
           <SectionHeader title={group.date} />
           {group.items.map((activity) => (
-            <ActivityListRow activity={activity} key={`${group.date}-${activity.title}-${activity.amount}`} />
+            <ActivityListRow activity={activity} href={{ pathname: '/activity/[hash]', params: { hash: activity.hash } }} key={activity.hash} />
           ))}
         </View>
       ))}
@@ -316,6 +320,11 @@ export function ActivityScreen() {
 
 export function ProfileScreen() {
   const router = useRouter();
+  const { signOut } = useAuthSession();
+  const signOutWallet = async () => {
+    await signOut();
+    router.replace('/sign-in');
+  };
 
   return (
     <AppScreen bottomNav title="Me">
@@ -324,7 +333,7 @@ export function ProfileScreen() {
           <Wallet color="#C7FF3D" size={22} />
         </View>
         <View style={styles.profileCopy}>
-          <AppText>LIFE Main Wallet</AppText>
+          <AppText>Main Wallet</AppText>
           <AppText tone="muted" variant="caption">
             {shortAddress(mockAddress)}
           </AppText>
@@ -332,52 +341,192 @@ export function ProfileScreen() {
       </View>
 
       <SettingsSection title="Wallets">
-        {mockWallets.map((wallet, index) => (
-          <WalletRow wallet={wallet} active={index === 0} key={wallet.address} />
-        ))}
-        <SettingsRow icon={<Plus color="#A5AEC0" size={18} />} title="Import wallet" />
+        <SettingsRow icon={<Wallet color="#C7FF3D" size={18} />} meta={<StatusBadge status="1" />} title="Wallets" onPress={() => router.push('/wallets')} />
       </SettingsSection>
 
       <SettingsSection title="Security">
         <SettingsRow icon={<ShieldCheck color="#C7FF3D" size={18} />} title="Security center" onPress={() => router.push('/security')} />
-        <SettingsRow icon={<LockKeyhole color="#A5AEC0" size={18} />} title="Password" />
-        <SettingsRow icon={<EyeOff color="#A5AEC0" size={18} />} title="Recovery phrase" />
+        <SettingsRow icon={<Cloud color="#A5AEC0" size={18} />} title="Backup" onPress={() => router.push('/security/backup')} />
+        <SettingsRow icon={<Download color="#A5AEC0" size={18} />} title="Export" onPress={() => router.push('/security/export')} />
       </SettingsSection>
 
-      <SettingsSection title="Connections">
-        <SettingsRow icon={<Ban color="#A5AEC0" size={18} />} title="Connected dApps" meta={<StatusBadge status="0 active" />} />
-        <SettingsRow icon={<Bell color="#A5AEC0" size={18} />} title="Notifications" />
+      <SettingsSection title="Account">
+        <SettingsRow icon={<LogOut color="#FF6B6B" size={18} />} title="Sign out" onPress={signOutWallet} />
       </SettingsSection>
     </AppScreen>
   );
 }
 
 export function SecurityScreen() {
+  const router = useRouter();
+
   return (
     <AppScreen title="Security" backHref="/profile">
       <View style={styles.securityStatus}>
         <ShieldCheck color="#C7FF3D" size={24} />
         <View style={styles.securityCopy}>
-          <AppText>Password enabled</AppText>
+          <AppText>Secure</AppText>
           <AppText tone="muted" variant="caption">
-            Sensitive values are hidden in this demo.
+            Google connected
           </AppText>
         </View>
       </View>
 
-      <SettingsSection title="Access">
-        <SettingsRow icon={<LockKeyhole color="#C7FF3D" size={18} />} title="Change password" />
-        <SettingsRow icon={<KeyRound color="#A5AEC0" size={18} />} title="Recovery phrase" />
+      <SettingsSection title="Wallet">
+        <SettingsRow icon={<Cloud color="#C7FF3D" size={18} />} title="Backup" onPress={() => router.push('/security/backup')} />
+        <SettingsRow icon={<Download color="#A5AEC0" size={18} />} title="Export" onPress={() => router.push('/security/export')} />
+        <SettingsRow icon={<KeyRound color="#A5AEC0" size={18} />} title="Recovery" onPress={() => router.push('/security/recovery')} />
       </SettingsSection>
 
-      <SettingsSection title="On-chain safety">
-        <SettingsRow icon={<ShieldCheck color="#A5AEC0" size={18} />} title="Token approvals" meta={<StatusBadge status="Preview" />} />
-        <SettingsRow icon={<Ban color="#A5AEC0" size={18} />} title="Connected dApps" meta={<StatusBadge status="None" />} />
+      <SettingsSection title="Network">
+        <SettingsRow icon={<ShieldCheck color="#A5AEC0" size={18} />} title="Approvals" meta={<StatusBadge status="0" />} />
+        <SettingsRow icon={<Ban color="#A5AEC0" size={18} />} title="dApps" meta={<StatusBadge status="0" />} />
+      </SettingsSection>
+    </AppScreen>
+  );
+}
+
+export function WalletsScreen() {
+  const router = useRouter();
+
+  return (
+    <AppScreen title="Wallets" backHref="/profile">
+      <View style={styles.sectionBlock}>
+        {mockWallets.map((wallet, index) => (
+          <WalletRow wallet={wallet} active={index === 0} key={wallet.address} />
+        ))}
+      </View>
+
+      <SettingsSection title="Actions">
+        <SettingsRow icon={<Cloud color="#C7FF3D" size={18} />} title="Backup" onPress={() => router.push('/security/backup')} />
+        <SettingsRow icon={<Download color="#A5AEC0" size={18} />} title="Export" onPress={() => router.push('/security/export')} />
       </SettingsSection>
 
-      <View style={styles.warningPanel}>
-        <AlertTriangle color="#F3BA2F" size={18} />
-        <AppText tone="muted">Seed phrases and private keys are never shown in logs or cached UI state.</AppText>
+      <SettingsSection title="Manage">
+        <SettingsRow icon={<EyeOff color="#A5AEC0" size={18} />} title="Hide balances" />
+        <SettingsRow danger icon={<Trash2 color="#FF6B6B" size={18} />} title="Remove wallet" />
+      </SettingsSection>
+    </AppScreen>
+  );
+}
+
+export function BackupScreen() {
+  const router = useRouter();
+
+  return (
+    <AppScreen title="Backup" backHref="/security">
+      <View style={styles.securityStatus}>
+        <Cloud color="#C7FF3D" size={24} />
+        <View style={styles.securityCopy}>
+          <AppText>Ready</AppText>
+          <AppText tone="muted" variant="caption">
+            Google connected
+          </AppText>
+        </View>
+        <StatusBadge status="On" />
+      </View>
+
+      <View style={styles.infoCard}>
+        <InfoLine label="Google" tone="lime" value="Connected" />
+        <InfoLine label="Access" tone="lime" value="Google" />
+        <InfoLine label="Export" value="Available" />
+      </View>
+
+      <SettingsSection title="Actions">
+        <SettingsRow icon={<Download color="#C7FF3D" size={18} />} title="Export" onPress={() => router.push('/security/export')} />
+        <SettingsRow icon={<KeyRound color="#A5AEC0" size={18} />} title="Recovery" onPress={() => router.push('/security/recovery')} />
+      </SettingsSection>
+    </AppScreen>
+  );
+}
+
+export function ExportScreen() {
+  const [revealed, setRevealed] = useState(false);
+  const secret = '0x7c90a4e5f8b1d2c3a60719e4d5f8a901b2c3d4e5f60718293a4b5c6d7e8f9012';
+
+  return (
+    <AppScreen
+      title="Export"
+      backHref="/security"
+      fixedBottom={
+        <AppButton style={styles.fullFlex} onPress={() => setRevealed((current) => !current)}>
+          {revealed ? 'Hide' : 'Reveal'}
+        </AppButton>
+      }>
+      <View style={styles.keyPanel}>
+        <View style={styles.keyPanelTop}>
+          {revealed ? <Eye color="#C7FF3D" size={20} /> : <EyeOff color="#A5AEC0" size={20} />}
+          <AppText>{revealed ? 'Private key' : 'Hidden'}</AppText>
+        </View>
+        <AppText variant="mono" tone={revealed ? 'primary' : 'subtle'} style={styles.secretText}>
+          {revealed ? secret : '•••• •••• •••• •••• •••• ••••'}
+        </AppText>
+      </View>
+
+      {revealed ? (
+        <ActionRail
+          items={[
+            { icon: <Copy color="#C7FF3D" size={19} />, label: 'Copy' },
+            { icon: <Download color="#A5AEC0" size={19} />, label: 'Save' },
+          ]}
+        />
+      ) : null}
+    </AppScreen>
+  );
+}
+
+export function RecoveryScreen() {
+  const router = useRouter();
+
+  return (
+    <AppScreen title="Recovery" backHref="/security">
+      <View style={styles.infoCard}>
+        <InfoLine label="Account" tone="lime" value="Google" />
+        <InfoLine label="Backup" tone="lime" value="Ready" />
+        <InfoLine label="Access" tone="lime" value="Google" />
+        <InfoLine label="Wallet" value="Exportable" />
+      </View>
+
+      <SettingsSection title="Actions">
+        <SettingsRow icon={<Download color="#C7FF3D" size={18} />} title="Export" onPress={() => router.push('/security/export')} />
+      </SettingsSection>
+    </AppScreen>
+  );
+}
+
+export function ActivityDetailScreen() {
+  const params = useLocalSearchParams<{ hash?: string }>();
+  const activity = mockActivities.find((item) => item.hash === params.hash) ?? mockActivities[0];
+
+  return (
+    <AppScreen title="Transaction" backHref="/activity">
+      <View style={styles.reviewHero}>
+        <View style={[styles.activityDetailIcon, activity.direction === 'in' ? styles.activityDetailIn : styles.activityDetailOut]}>
+          {activity.direction === 'in' ? <ArrowDownLeft color="#C7FF3D" size={22} /> : <ArrowUpRight color="#F3BA2F" size={22} />}
+        </View>
+        <View style={styles.reviewHeroCopy}>
+          <AppText>{activity.amount}</AppText>
+          <AppText tone="muted" variant="caption">
+            {activity.title}
+          </AppText>
+        </View>
+        <StatusBadge status={activity.status} />
+      </View>
+
+      <View style={styles.infoCard}>
+        <InfoLine label="Asset" value={activity.asset} />
+        <InfoLine label="Status" tone={activity.status === 'Failed' ? 'danger' : activity.status === 'Pending' ? 'amber' : 'lime'} value={activity.status} />
+        <InfoLine label="Network" value="BSC" />
+        <InfoLine label="Gas" value="0.00042 BNB" />
+      </View>
+
+      <View style={styles.keyPanel}>
+        <AppText tone="muted" variant="caption">
+          Hash
+        </AppText>
+        <AppText variant="mono" style={styles.secretText}>
+          {activity.hash}
+        </AppText>
       </View>
     </AppScreen>
   );
@@ -471,6 +620,19 @@ function groupActivities(items: MockActivity[]) {
 }
 
 const styles = StyleSheet.create({
+  activityDetailIcon: {
+    alignItems: 'center',
+    borderRadius: 14,
+    height: 52,
+    justifyContent: 'center',
+    width: 52,
+  },
+  activityDetailIn: {
+    backgroundColor: 'rgba(199,255,61,0.08)',
+  },
+  activityDetailOut: {
+    backgroundColor: 'rgba(243,186,47,0.08)',
+  },
   addressText: {
     textAlign: 'center',
   },
@@ -564,6 +726,19 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     gap: 12,
   },
+  keyPanel: {
+    backgroundColor: 'rgba(255,255,255,0.045)',
+    borderColor: 'rgba(255,255,255,0.09)',
+    borderRadius: 16,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  keyPanelTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
   miniBalance: {
     backgroundColor: 'rgba(255,255,255,0.055)',
     borderColor: 'rgba(255,255,255,0.1)',
@@ -648,6 +823,10 @@ const styles = StyleSheet.create({
   sectionHeaderTitle: {
     fontSize: 18,
     lineHeight: 24,
+  },
+  secretText: {
+    flexShrink: 1,
+    lineHeight: 20,
   },
   securityCopy: {
     flex: 1,

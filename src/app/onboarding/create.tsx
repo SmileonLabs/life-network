@@ -1,5 +1,5 @@
-import { CreateWalletScreen } from '@/features/mock-wallet/pre-login-screens';
+import { Redirect } from 'expo-router';
 
 export default function OnboardingCreateRoute() {
-  return <CreateWalletScreen />;
+  return <Redirect href="/" />;
 }

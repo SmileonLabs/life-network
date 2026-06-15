@@ -3,6 +3,7 @@ import {
   type ReactNode,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
 } from 'react';
@@ -14,11 +15,13 @@ import { getDemoAssets } from '@/features/tokens/services/demo-tokens';
 import type { AssetBalance } from '@/features/tokens/types';
 import { validateTransfer } from '@/features/transfer/services/transfer-validation';
 import type { TransferValidation } from '@/features/transfer/types';
-import { classifyWalletSecret } from '@/features/security/services/import-secret';
-import type { WalletAccount, WalletImportPreview } from '@/features/wallet/types';
+import { useWalletAdapter } from '@/features/wallet/services/wallet-adapter';
+import type { WalletAccount } from '@/features/wallet/types';
+import { getNativeBalance, toEvmAddress, toNativeValueHex } from '@/shared/api/evm-client';
 import { defaultChain, supportedChains, type SupportedChainId } from '@/shared/config/chains';
 import { makeDemoAddress, makeDemoHash, normalizeAddress } from '@/shared/utils/address';
 import { shortAddress } from '@/shared/utils/format';
+import { readStorageValue, writeStorageValue } from '@/shared/utils/storage';
 
 type SendTransferInput = {
   assetId: string;
@@ -32,8 +35,6 @@ type WalletContextValue = {
   wallets: WalletAccount[];
   activeWallet: WalletAccount | null;
   setActiveWalletId: (walletId: string) => void;
-  previewWalletImport: (secret: string) => WalletImportPreview | null;
-  importWallet: (secret: string, label?: string) => WalletAccount | null;
   assets: AssetBalance[];
   coreAssets: AssetBalance[];
   discoveredAssets: AssetBalance[];
@@ -42,32 +43,40 @@ type WalletContextValue = {
   nativeAsset: AssetBalance | undefined;
   activities: WalletActivity[];
   validateSend: (assetId: string, recipient: string, amount: string) => TransferValidation;
-  sendTransfer: (input: SendTransferInput) => WalletActivity | null;
+  sendTransfer: (input: SendTransferInput) => Promise<WalletActivity | null>;
 };
 
 const WalletContext = createContext<WalletContextValue | null>(null);
-const importedWalletsKey = 'life-wallet-imported-wallets';
 const activeWalletKey = 'life-wallet-active-wallet';
 const assetDebitsKey = 'life-wallet-asset-debits';
 const localActivitiesKey = 'life-wallet-local-activities';
 
-function createGeneratedWallet(userId: string, chainId: SupportedChainId): WalletAccount {
+function createMainWallet({
+  address,
+  chainId,
+  isPrivy,
+  userId,
+}: {
+  address?: string | null;
+  chainId: SupportedChainId;
+  isPrivy: boolean;
+  userId: string;
+}): WalletAccount {
   return {
     id: `generated:${userId}:${chainId}`,
     source: 'privy-generated',
-    address: makeDemoAddress(`${userId}:${chainId}:generated`),
-    label: 'Google Wallet',
+    address: address ?? makeDemoAddress(`${userId}:${chainId}:generated`),
+    label: 'Main Wallet',
     chainId,
     createdAt: new Date().toISOString(),
+    isPrivy,
   };
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
   const { user } = useAuthSession();
+  const walletAdapter = useWalletAdapter();
   const [chainId, setChainId] = useState<SupportedChainId>(defaultChain.id);
-  const [importedWallets, setImportedWallets] = useState<WalletAccount[]>(
-    () => readStoredValue(importedWalletsKey) ?? [],
-  );
   const [activeWalletId, setActiveWalletIdState] = useState<string>(
     () => readStoredValue(activeWalletKey) ?? '',
   );
@@ -77,70 +86,89 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const [localActivities, setLocalActivities] = useState<WalletActivity[]>(
     () => readStoredValue(localActivitiesKey) ?? [],
   );
+  const [liveNativeBalance, setLiveNativeBalance] = useState<{
+    address: string;
+    balance: number;
+    chainId: SupportedChainId;
+  } | null>(null);
 
-  const generatedWallet = useMemo(() => {
-    if (!user) {
+  const mainWallet = useMemo(() => {
+    if (!user || user.method !== 'google') {
       return null;
     }
 
-    return createGeneratedWallet(user.id, chainId);
-  }, [chainId, user]);
+    return createMainWallet({
+      address: user.isPrivy ? walletAdapter.address : null,
+      chainId,
+      isPrivy: user.isPrivy,
+      userId: user.id,
+    });
+  }, [chainId, user, walletAdapter.address]);
 
-  const wallets = useMemo(() => {
-    const walletsForChain = importedWallets.filter((wallet) => wallet.chainId === chainId);
-    return generatedWallet ? [generatedWallet, ...walletsForChain] : walletsForChain;
-  }, [chainId, generatedWallet, importedWallets]);
+  const wallets = useMemo(() => (mainWallet ? [mainWallet] : []), [mainWallet]);
 
   const activeWallet = useMemo(
     () => wallets.find((wallet) => wallet.id === activeWalletId) ?? wallets[0] ?? null,
     [activeWalletId, wallets],
   );
 
-  const previewWalletImport = useCallback((secret: string) => classifyWalletSecret(secret), []);
-
   const setActiveWalletId = useCallback((walletId: string) => {
     writeStoredValue(activeWalletKey, walletId);
     setActiveWalletIdState(walletId);
   }, []);
 
-  const importWallet = useCallback(
-    (secret: string, label?: string) => {
-      const preview = classifyWalletSecret(secret);
-      if (!preview || !user) {
-        return null;
-      }
+  useEffect(() => {
+    if (!user?.isPrivy || !walletAdapter.isReady || walletAdapter.address) {
+      return;
+    }
 
-      const importedWallet: WalletAccount = {
-        id: `imported:${preview.address}:${Date.now()}`,
-        source: 'privy-imported',
-        address: preview.address,
-        label: label?.trim() || `${preview.kind === 'private-key' ? 'Private Key' : 'Seed'} Wallet`,
-        chainId,
-        createdAt: new Date().toISOString(),
-      };
+    walletAdapter.createWallet().catch(() => {
+      // Privy exposes wallet creation errors through its own UI/state.
+    });
+  }, [user?.isPrivy, walletAdapter]);
 
-      setImportedWallets((currentWallets) => {
-        const nextWallets = [importedWallet, ...currentWallets];
-        writeStoredValue(importedWalletsKey, nextWallets);
-        return nextWallets;
+  useEffect(() => {
+    if (!activeWallet?.isPrivy || !toEvmAddress(activeWallet.address)) {
+      return;
+    }
+
+    let cancelled = false;
+
+    getNativeBalance(activeWallet.address, chainId)
+      .then((balance) => {
+        if (!cancelled && balance !== null) {
+          setLiveNativeBalance({ address: activeWallet.address, balance, chainId });
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLiveNativeBalance(null);
+        }
       });
-      setActiveWalletId(importedWallet.id);
-      return importedWallet;
-    },
-    [chainId, setActiveWalletId, user],
-  );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWallet?.address, activeWallet?.isPrivy, chainId]);
 
   const assets = useMemo(() => {
     const walletKey = activeWallet?.address ?? 'no-wallet';
     return getDemoAssets(chainId).map((asset) => {
+      const liveBalance =
+        asset.type === 'native' &&
+        Boolean(liveNativeBalance) &&
+        liveNativeBalance?.address === activeWallet?.address &&
+        liveNativeBalance?.chainId === chainId
+          ? liveNativeBalance.balance
+          : null;
       const debitKey = `${walletKey}:${asset.id}`;
       const debit = assetDebits[debitKey] ?? 0;
       return {
         ...asset,
-        balance: Math.max(asset.balance - debit, 0),
+        balance: Math.max((liveBalance ?? asset.balance) - debit, 0),
       };
     });
-  }, [activeWallet?.address, assetDebits, chainId]);
+  }, [activeWallet?.address, assetDebits, chainId, liveNativeBalance]);
 
   const nativeAsset = assets.find((asset) => asset.type === 'native');
   const lifeAsset = assets.find((asset) => asset.symbol === 'LIFE');
@@ -166,7 +194,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   const sendTransfer = useCallback(
-    ({ assetId, recipient, amount }: SendTransferInput) => {
+    async ({ assetId, recipient, amount }: SendTransferInput) => {
       if (!activeWallet) {
         return null;
       }
@@ -179,19 +207,44 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return null;
       }
 
-      const debitKey = `${activeWallet.address}:${assetId}`;
-      setAssetDebits((currentDebits) => ({
-        ...writeAndReturn(assetDebitsKey, {
-          ...currentDebits,
-          [debitKey]: (currentDebits[debitKey] ?? 0) + parsedAmount,
-        }),
-      }));
+      let transactionHash: string | null = null;
+
+      if (activeWallet.isPrivy && asset.type === 'native') {
+        const provider = await walletAdapter.getProvider();
+        const from = toEvmAddress(activeWallet.address);
+        const to = toEvmAddress(recipient);
+
+        if (!provider || !from || !to) {
+          return null;
+        }
+
+        const response = await provider.request({
+          method: 'eth_sendTransaction',
+          params: [
+            {
+              from,
+              to,
+              value: toNativeValueHex(amount),
+            },
+          ],
+        });
+
+        transactionHash = typeof response === 'string' ? response : null;
+      } else {
+        const debitKey = `${activeWallet.address}:${assetId}`;
+        setAssetDebits((currentDebits) => ({
+          ...writeAndReturn(assetDebitsKey, {
+            ...currentDebits,
+            [debitKey]: (currentDebits[debitKey] ?? 0) + parsedAmount,
+          }),
+        }));
+      }
 
       const chain = supportedChains[chainId];
       const activity: WalletActivity = {
         id: `local:${Date.now()}`,
         chainId,
-        hash: makeDemoHash(`${activeWallet.address}:${recipient}:${asset.symbol}:${amount}`),
+        hash: transactionHash ?? makeDemoHash(`${activeWallet.address}:${recipient}:${asset.symbol}:${amount}`),
         title: `${asset.symbol} sent`,
         subtitle: `To ${shortAddress(normalizeAddress(recipient))}`,
         direction: 'out',
@@ -209,7 +262,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       });
       return activity;
     },
-    [activeWallet, assets, chainId, validateSend],
+    [activeWallet, assets, chainId, validateSend, walletAdapter],
   );
 
   const value = useMemo<WalletContextValue>(
@@ -219,8 +272,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       wallets,
       activeWallet,
       setActiveWalletId,
-      previewWalletImport,
-      importWallet,
       assets,
       coreAssets,
       discoveredAssets,
@@ -238,10 +289,8 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       chainId,
       coreAssets,
       discoveredAssets,
-      importWallet,
       lifeAsset,
       nativeAsset,
-      previewWalletImport,
       sendTransfer,
       setActiveWalletId,
       totalUsd,
@@ -254,24 +303,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 }
 
 function readStoredValue<T>(key: string): T | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    const savedValue = window.localStorage.getItem(key);
-    return savedValue ? (JSON.parse(savedValue) as T) : null;
-  } catch {
-    return null;
-  }
+  return readStorageValue<T>(key);
 }
 
 function writeStoredValue<T>(key: string, value: T) {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.localStorage.setItem(key, JSON.stringify(value));
+  writeStorageValue(key, value);
 }
 
 function writeAndReturn<T>(key: string, value: T) {

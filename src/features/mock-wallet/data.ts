@@ -15,6 +15,7 @@ export type MockActivity = {
   asset: string;
   date: string;
   direction: 'in' | 'out';
+  hash: string;
   status: 'Success' | 'Pending' | 'Failed';
   subtitle: string;
   title: string;
@@ -23,7 +24,7 @@ export type MockActivity = {
 export type MockWallet = {
   address: string;
   label: string;
-  source: 'Generated' | 'Imported';
+  source: 'Main';
 };
 
 export const mockAddress = '0x7A04C6A4F3218d29C7D8A63c4e4f522B4F2fB91F';
@@ -81,6 +82,7 @@ export const mockActivities: MockActivity[] = [
     asset: 'LIFE',
     date: 'Today',
     direction: 'in',
+    hash: '0x8f41a0c7e72d5f6a3d19b4e8a0f13c6b9d2a4e5f7b8c9d01122334455667788',
     status: 'Success',
     subtitle: 'Health data reward',
     title: 'Reward received',
@@ -90,6 +92,7 @@ export const mockActivities: MockActivity[] = [
     asset: 'BNB',
     date: 'Today',
     direction: 'out',
+    hash: '0x9235b4c18a6f7d2e1c0b9a88776655443322110fedcba9876543210011223344',
     status: 'Success',
     subtitle: 'Gas fee',
     title: 'Network fee',
@@ -99,6 +102,7 @@ export const mockActivities: MockActivity[] = [
     asset: 'LIFE',
     date: 'Yesterday',
     direction: 'out',
+    hash: '0x7246ed1c0b9a8f76543210123456789abcdef0123456789abcdef01122334455',
     status: 'Pending',
     subtitle: '0x62A1...92C0',
     title: 'Sent',
@@ -108,6 +112,7 @@ export const mockActivities: MockActivity[] = [
     asset: 'USDT',
     date: 'Yesterday',
     direction: 'in',
+    hash: '0xa3e7291f8b6c5d4e3f2019876543210abcdefabcdef1234567890abcdef1234',
     status: 'Success',
     subtitle: 'BEP-20 transfer',
     title: 'Received',
@@ -117,6 +122,7 @@ export const mockActivities: MockActivity[] = [
     asset: 'CAKE',
     date: 'Jun 12',
     direction: 'out',
+    hash: '0xfd1098c7b6a543210fedcba98765432100112233445566778899aabbccddeeff',
     status: 'Failed',
     subtitle: 'Insufficient gas',
     title: 'Swap attempt',
@@ -126,13 +132,8 @@ export const mockActivities: MockActivity[] = [
 export const mockWallets: MockWallet[] = [
   {
     address: mockAddress,
-    label: 'LIFE Main Wallet',
-    source: 'Generated',
-  },
-  {
-    address: '0xF49c2E1517a0451f1dD97167f6C77FaE1b309c80',
-    label: 'Imported Wallet',
-    source: 'Imported',
+    label: 'Main Wallet',
+    source: 'Main',
   },
 ];
 
