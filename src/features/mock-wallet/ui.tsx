@@ -1,4 +1,5 @@
 import { type ComponentType, type ReactNode } from 'react';
+import * as Haptics from 'expo-haptics';
 import { type Href, Link, usePathname } from 'expo-router';
 import {
   Activity,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react-native';
 import {
   Image,
+  KeyboardAvoidingView,
   Platform,
   Modal,
   Pressable,
@@ -33,6 +35,7 @@ import {
   TextInput,
   View,
   type PressableProps,
+  type GestureResponderEvent,
   type StyleProp,
   type TextInputProps,
   type TextStyle,
@@ -56,6 +59,37 @@ const toneColor: Record<Tone, string> = {
   primary: '#F7FAFF',
   subtle: '#667085',
 };
+
+type FeedbackTone = 'selection' | 'impact' | 'success' | 'warning' | 'error';
+
+export function triggerNativeFeedback(tone: FeedbackTone = 'selection') {
+  if (Platform.OS === 'web') {
+    return;
+  }
+
+  const run =
+    tone === 'impact'
+      ? Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
+      : tone === 'success'
+        ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
+        : tone === 'warning'
+          ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning)
+          : tone === 'error'
+            ? Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
+            : Haptics.selectionAsync();
+
+  run.catch(() => undefined);
+}
+
+function withNativeFeedback(
+  handler?: PressableProps['onPressIn'],
+  tone: FeedbackTone = 'selection',
+): PressableProps['onPressIn'] {
+  return (event: GestureResponderEvent) => {
+    triggerNativeFeedback(tone);
+    handler?.(event);
+  };
+}
 
 export function AppText({
   children,
@@ -102,22 +136,28 @@ export function AppScreen({
 
   return (
     <SafeAreaView style={styles.screen}>
-      <View style={styles.backgroundShade} />
-      <View style={styles.shell}>
-        {scroll ? (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            {body}
-          </ScrollView>
-        ) : (
-          body
-        )}
-      </View>
-      {fixedBottom ? <View style={[styles.fixedBottom, { paddingBottom: Math.max(insets.bottom, 12) }]}>{fixedBottom}</View> : null}
-      {bottomNav ? (
-        <View style={[styles.navWrap, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <BottomNav />
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboardRoot}>
+        <View style={styles.backgroundShade} />
+        <View style={styles.shell}>
+          {scroll ? (
+            <ScrollView
+              contentContainerStyle={styles.scrollContent}
+              decelerationRate="fast"
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}>
+              {body}
+            </ScrollView>
+          ) : (
+            body
+          )}
         </View>
-      ) : null}
+        {fixedBottom ? <View style={[styles.fixedBottom, { paddingBottom: Math.max(insets.bottom, 12) }]}>{fixedBottom}</View> : null}
+        {bottomNav ? (
+          <View style={[styles.navWrap, { paddingBottom: Math.max(insets.bottom, 12) }]}>
+            <BottomNav />
+          </View>
+        ) : null}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -128,7 +168,12 @@ export function TopBar({ backHref, right, title }: { backHref?: Href; right?: Re
       <View style={styles.topBarLeft}>
         {backHref ? (
           <Link href={backHref} asChild>
-            <Pressable accessibilityLabel="Go back" accessibilityRole="button" style={styles.backButton}>
+            <Pressable
+              accessibilityLabel="Go back"
+              accessibilityRole="button"
+              hitSlop={8}
+              onPressIn={withNativeFeedback(undefined, 'selection')}
+              style={styles.backButton}>
               <ChevronLeft color={toneColor.primary} size={21} />
             </Pressable>
           </Link>
@@ -157,6 +202,7 @@ export function NetworkBadge({ label = 'BSC Testnet' }: { label?: string }) {
 export function AppButton({
   children,
   icon,
+  onPressIn,
   size = 'large',
   style,
   tone = 'primary',
@@ -172,6 +218,7 @@ export function AppButton({
     <Pressable
       accessibilityRole="button"
       {...props}
+      onPressIn={withNativeFeedback(onPressIn, tone === 'primary' ? 'impact' : 'selection')}
       style={({ pressed }) => [buttonStyles.base, buttonStyles[size], buttonStyles[tone], pressed && buttonStyles.pressed, style]}>
       <View style={buttonStyles.content}>
         {icon}
@@ -229,7 +276,7 @@ export function BottomSheet({
   }
 
   return (
-    <Modal animationType="none" transparent visible={visible} onRequestClose={onClose} statusBarTranslucent>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.sheetOverlay}>
         <Pressable style={styles.sheetBackdrop} onPress={onClose} />
         <View style={styles.sheet}>
@@ -237,7 +284,12 @@ export function BottomSheet({
           <View style={styles.sheetHeader}>
             <AppText variant="title">{title}</AppText>
             {onClose ? (
-              <Pressable accessibilityRole="button" onPress={onClose} style={styles.iconButton}>
+              <Pressable
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={onClose}
+                onPressIn={withNativeFeedback(undefined, 'selection')}
+                style={({ pressed }) => [styles.iconButton, pressed && styles.iconPressed]}>
                 <X color={toneColor.muted} size={18} />
               </Pressable>
             ) : null}
@@ -366,7 +418,11 @@ export function SettingsRow({
   title: string;
 }) {
   return (
-    <Pressable accessibilityRole="button" onPress={onPress} style={styles.settingsRow}>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      onPressIn={onPress ? withNativeFeedback(undefined, danger ? 'warning' : 'selection') : undefined}
+      style={({ pressed }) => [styles.settingsRow, pressed && onPress && styles.rowPressed]}>
       <View style={styles.settingsIcon}>{icon}</View>
       <AppText tone={danger ? 'danger' : 'primary'} style={styles.settingsTitle}>
         {title}
@@ -398,8 +454,13 @@ export function ActionRail({ items }: { items: { href?: Href; icon: ReactNode; l
   return (
     <View style={styles.actionRail}>
       {items.map((item) => {
+        const actionStyle = item.href ? styles.actionItem : ({ pressed }: { pressed: boolean }) => [styles.actionItem, pressed && styles.actionPressed];
         const button = (
-          <Pressable accessibilityRole="button" onPress={item.onPress} style={styles.actionItem}>
+          <Pressable
+            accessibilityRole="button"
+            onPress={item.onPress}
+            onPressIn={withNativeFeedback(undefined, item.label === 'Refresh' || item.label === 'Updating' ? 'selection' : 'impact')}
+            style={actionStyle}>
             <View style={styles.actionIcon}>{item.icon}</View>
             <AppText tone="muted" variant="caption" style={styles.actionLabel}>
               {item.label}
@@ -444,8 +505,14 @@ export function Row({
   value?: string;
   valueTone?: Tone;
 }) {
+  const interactive = Boolean(href || onPress);
   const content = (
-    <Pressable accessibilityRole={href || onPress ? 'button' : undefined} disabled={!href && !onPress} onPress={onPress} style={styles.row}>
+    <Pressable
+      accessibilityRole={interactive ? 'button' : undefined}
+      disabled={!interactive}
+      onPress={onPress}
+      onPressIn={interactive ? withNativeFeedback(undefined, 'selection') : undefined}
+      style={href ? styles.row : ({ pressed }) => [styles.row, interactive && pressed && styles.rowPressed]}>
       {leading}
       <View style={styles.rowCopy}>
         <AppText numberOfLines={1}>{title}</AppText>
@@ -500,7 +567,11 @@ export function BottomNav() {
         const Icon = item.icon;
         return (
           <Link href={item.href} asChild key={item.label}>
-            <Pressable accessibilityRole="button" style={styles.navItem}>
+            <Pressable
+              accessibilityRole="button"
+              hitSlop={6}
+              onPressIn={withNativeFeedback(undefined, 'selection')}
+              style={styles.navItem}>
               <Icon color={active ? toneColor.lime : toneColor.muted} size={19} />
               <AppText tone={active ? 'lime' : 'muted'} variant="caption" style={styles.navLabel}>
                 {item.label}
@@ -613,7 +684,8 @@ const buttonStyles = StyleSheet.create({
     paddingHorizontal: 14,
   },
   pressed: {
-    opacity: 0.72,
+    opacity: 0.78,
+    transform: [{ scale: 0.985 }],
   },
   primary: {
     backgroundColor: 'rgba(199, 255, 61, 0.16)',
@@ -643,6 +715,10 @@ const styles = StyleSheet.create({
   actionItem: {
     flex: 1,
     gap: 6,
+  },
+  actionPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.975 }],
   },
   actionItemWrap: {
     flex: 1,
@@ -717,6 +793,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
+  iconPressed: {
+    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    opacity: 0.82,
+    transform: [{ scale: 0.96 }],
+  },
   input: {
     color: toneColor.primary,
     flex: 1,
@@ -736,6 +817,9 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingHorizontal: 14,
   },
+  keyboardRoot: {
+    flex: 1,
+  },
   navItem: {
     alignItems: 'center',
     flex: 1,
@@ -745,6 +829,10 @@ const styles = StyleSheet.create({
   navLabel: {
     fontSize: 10,
     lineHeight: 13,
+  },
+  navPressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.96 }],
   },
   navWrap: {
     alignSelf: 'center',
@@ -782,6 +870,11 @@ const styles = StyleSheet.create({
     minHeight: 64,
     paddingHorizontal: 12,
     paddingVertical: 8,
+  },
+  rowPressed: {
+    backgroundColor: 'rgba(255, 255, 255, 0.075)',
+    opacity: 0.9,
+    transform: [{ scale: 0.992 }],
   },
   rowCopy: {
     flex: 1,

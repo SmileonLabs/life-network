@@ -6,6 +6,7 @@ import { useAuthSession } from '@/features/auth/hooks/use-auth-session';
 import {
   AppScreen,
   AppText,
+  triggerNativeFeedback,
 } from '@/features/mock-wallet/ui';
 
 export function WelcomeScreen() {
@@ -46,7 +47,13 @@ export function WelcomeScreen() {
             accessibilityLabel="Continue with Google"
             accessibilityRole="button"
             disabled={!isReady || isSigningIn}
-            style={StyleSheet.flatten([styles.entryButton, styles.primaryEntry, (!isReady || isSigningIn) && styles.disabledEntry])}
+            style={({ pressed }) => [
+              styles.entryButton,
+              styles.primaryEntry,
+              (!isReady || isSigningIn) && styles.disabledEntry,
+              pressed && isReady && !isSigningIn && styles.entryPressed,
+            ]}
+            onPressIn={() => triggerNativeFeedback('impact')}
             onPress={continueWithGoogle}>
             <View style={styles.googleButtonCopy}>
               <Mail color="#07100B" size={17} />
@@ -88,6 +95,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     minHeight: 52,
     paddingHorizontal: 20,
+  },
+  entryPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.985 }],
   },
   disabledEntry: {
     opacity: 0.62,
