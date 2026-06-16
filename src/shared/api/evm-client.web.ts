@@ -1,19 +1,7 @@
-import {
-  createPublicClient,
-  encodeFunctionData,
-  formatEther,
-  formatUnits,
-  http,
-  isAddress,
-  parseEther,
-  parseUnits,
-  toHex,
-  type Address,
-  type Hex,
-} from 'viem';
+import { type SupportedChainId, supportedChains } from '@/shared/config/chains';
 
-import { type SupportedChainId } from '@/shared/config/chains';
-import { bscMainnetViem, bscTestnetViem } from '@/shared/config/viem-chains';
+export type Address = `0x${string}`;
+type Hex = `0x${string}`;
 
 export type TokenMetadata = {
   address: Address;
@@ -68,6 +56,28 @@ type ReceiptLogInput = {
   topics: readonly Hex[];
 };
 
+type WebViemChain = {
+  blockExplorers: {
+    default: {
+      name: string;
+      url: string;
+    };
+  };
+  id: SupportedChainId;
+  name: string;
+  nativeCurrency: {
+    decimals: 18;
+    name: string;
+    symbol: 'BNB' | 'tBNB';
+  };
+  rpcUrls: {
+    default: {
+      http: string[];
+    };
+  };
+  testnet: boolean;
+};
+
 const transferEventTopic = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 const erc20Abi = [
@@ -111,36 +121,41 @@ const erc20Abi = [
   },
 ] as const;
 
-const publicClients = {
-  56: createPublicClient({
-    chain: bscMainnetViem,
-    transport: http(),
-  }),
-  97: createPublicClient({
-    chain: bscTestnetViem,
-    transport: http(),
-  }),
-} as const;
+export async function getPublicClient(chainId: SupportedChainId) {
+  const viem = await import('viem');
+  const chain = toViemChain(chainId);
 
-export function getPublicClient(chainId: SupportedChainId) {
-  return publicClients[chainId];
+  return viem.createPublicClient({
+    chain,
+    transport: viem.http(chain.rpcUrls.default.http[0]),
+  });
 }
 
 export async function getNativeBalance(address: string, chainId: SupportedChainId) {
-  if (!isAddress(address)) {
+  const viem = await import('viem');
+
+  if (!viem.isAddress(address)) {
     return null;
   }
 
-  const balance = await getPublicClient(chainId).getBalance({ address });
-  return Number(formatEther(balance));
+  const client = await getPublicClient(chainId);
+  const balance = await client.getBalance({ address });
+  return Number(viem.formatEther(balance));
 }
 
 export function toEvmAddress(address: string): Address | null {
-  return isAddress(address) ? address : null;
+  return /^0x[a-fA-F0-9]{40}$/.test(address) ? (address as Address) : null;
+}
+
+export async function parseNativeAmount(amount: string) {
+  const viem = await import('viem');
+  return viem.parseEther(amount);
 }
 
 export function toNativeValueHex(amount: string) {
-  return toHex(parseEther(amount));
+  const [whole = '0', fraction = ''] = amount.split('.');
+  const wei = BigInt(whole || '0') * 10n ** 18n + BigInt((fraction + '0'.repeat(18)).slice(0, 18));
+  return `0x${wei.toString(16)}`;
 }
 
 export async function getAddressKind(address: string, chainId: SupportedChainId): Promise<AddressKind> {
@@ -151,24 +166,26 @@ export async function getAddressKind(address: string, chainId: SupportedChainId)
   }
 
   try {
-    const bytecode = await getPublicClient(chainId).getBytecode({ address: target });
+    const client = await getPublicClient(chainId);
+    const bytecode = await client.getBytecode({ address: target });
     return bytecode && bytecode !== '0x' ? 'contract' : 'account';
   } catch {
     return 'unknown';
   }
 }
 
-export function encodeBep20Transfer(recipient: string, amount: string, decimals: number) {
+export async function encodeBep20Transfer(recipient: string, amount: string, decimals: number) {
+  const viem = await import('viem');
   const to = toEvmAddress(recipient);
 
   if (!to) {
     return null;
   }
 
-  return encodeFunctionData({
+  return viem.encodeFunctionData({
     abi: erc20Abi,
     functionName: 'transfer',
-    args: [to, parseUnits(amount, decimals)],
+    args: [to, viem.parseUnits(amount, decimals)],
   });
 }
 
@@ -185,6 +202,7 @@ export async function simulateBep20Transfer({
   from: string;
   recipient: string;
 }): Promise<ContractSimulationResult> {
+  const viem = await import('viem');
   const account = toEvmAddress(from);
   const token = asset.contractAddress ? toEvmAddress(asset.contractAddress) : null;
   const to = toEvmAddress(recipient);
@@ -204,12 +222,13 @@ export async function simulateBep20Transfer({
   }
 
   try {
-    await getPublicClient(chainId).simulateContract({
+    const client = await getPublicClient(chainId);
+    await client.simulateContract({
       account,
       address: token,
       abi: erc20Abi,
       functionName: 'transfer',
-      args: [to, parseUnits(amount, asset.decimals)],
+      args: [to, viem.parseUnits(amount, asset.decimals)],
     });
 
     return {
@@ -237,6 +256,7 @@ export async function estimateTransferFee({
   from: string;
   recipient: string;
 }) {
+  const viem = await import('viem');
   const account = toEvmAddress(from);
   const to = toEvmAddress(recipient);
 
@@ -244,14 +264,14 @@ export async function estimateTransferFee({
     return null;
   }
 
-  const client = getPublicClient(chainId);
+  const client = await getPublicClient(chainId);
   const gasPrice = await client.getGasPrice();
   const gas =
     asset.type === 'native'
       ? await client.estimateGas({
           account,
           to,
-          value: parseEther(amount),
+          value: viem.parseEther(amount),
         })
       : await estimateTokenTransferGas(client, {
           account,
@@ -260,7 +280,7 @@ export async function estimateTransferFee({
           recipient: to,
         });
 
-  return Number(formatEther(gas * gasPrice));
+  return Number(viem.formatEther(gas * gasPrice));
 }
 
 export async function getTokenBalance({
@@ -274,6 +294,7 @@ export async function getTokenBalance({
   contractAddress: string;
   decimals: number;
 }) {
+  const viem = await import('viem');
   const account = toEvmAddress(address);
   const token = toEvmAddress(contractAddress);
 
@@ -282,14 +303,15 @@ export async function getTokenBalance({
   }
 
   try {
-    const balance = await getPublicClient(chainId).readContract({
+    const client = await getPublicClient(chainId);
+    const balance = await client.readContract({
       abi: erc20Abi,
       address: token,
       functionName: 'balanceOf',
       args: [account],
     });
 
-    return Number(formatUnits(balance, decimals));
+    return Number(viem.formatUnits(balance, decimals));
   } catch {
     return null;
   }
@@ -303,7 +325,7 @@ export async function getTokenMetadata(contractAddress: string, chainId: Support
   }
 
   try {
-    const client = getPublicClient(chainId);
+    const client = await getPublicClient(chainId);
     const [name, symbol, decimals] = await Promise.all([
       client.readContract({ abi: erc20Abi, address, functionName: 'name' }),
       client.readContract({ abi: erc20Abi, address, functionName: 'symbol' }),
@@ -334,11 +356,13 @@ export async function getTransactionReceiptSummary(hash: string, chainId: Suppor
   }
 
   try {
-    const receipt = await getPublicClient(chainId).getTransactionReceipt({ hash: txHash });
-    const latestBlockNumber = await getPublicClient(chainId).getBlockNumber().catch(() => null);
+    const viem = await import('viem');
+    const client = await getPublicClient(chainId);
+    const receipt = await client.getTransactionReceipt({ hash: txHash });
+    const latestBlockNumber = await client.getBlockNumber().catch(() => null);
     return {
       status: receipt.status === 'success' ? 'success' : 'failed',
-      ...getReceiptMeta(receipt.blockNumber, receipt.gasUsed, receipt.effectiveGasPrice, latestBlockNumber),
+      ...getReceiptMeta(receipt.blockNumber, receipt.gasUsed, receipt.effectiveGasPrice, viem.formatEther, latestBlockNumber),
     };
   } catch {
     return {
@@ -355,14 +379,15 @@ export async function getTransactionLookupSummary(hash: string, chainId: Support
   }
 
   try {
-    const client = getPublicClient(chainId);
+    const viem = await import('viem');
+    const client = await getPublicClient(chainId);
     const transaction = await client.getTransaction({ hash: txHash });
     const receipt = await client.getTransactionReceipt({ hash: txHash }).catch(() => null);
     const latestBlockNumber = receipt ? await client.getBlockNumber().catch(() => null) : null;
     const receiptSummary: TransactionReceiptSummary = receipt
       ? {
           status: receipt.status === 'success' ? 'success' : 'failed',
-          ...getReceiptMeta(receipt.blockNumber, receipt.gasUsed, receipt.effectiveGasPrice, latestBlockNumber),
+          ...getReceiptMeta(receipt.blockNumber, receipt.gasUsed, receipt.effectiveGasPrice, viem.formatEther, latestBlockNumber),
         }
       : { status: 'pending' };
     const blockNumber = receiptSummary.blockNumber ?? toSafeNumber(transaction.blockNumber ?? undefined);
@@ -373,7 +398,7 @@ export async function getTransactionLookupSummary(hash: string, chainId: Support
     const tokenTransfers = receipt ? await getTokenTransferEventsFromLogs(receipt.logs, chainId) : [];
 
     return {
-      amountNative: Number(formatEther(transaction.value)),
+      amountNative: Number(viem.formatEther(transaction.value)),
       blockNumber,
       feeNative: receiptSummary.feeNative,
       from: transaction.from,
@@ -388,7 +413,7 @@ export async function getTransactionLookupSummary(hash: string, chainId: Support
   }
 }
 
-function getReceiptMeta(blockNumber: bigint, gasUsed: bigint, gasPrice?: bigint, latestBlockNumber?: bigint | null) {
+function getReceiptMeta(blockNumber: bigint, gasUsed: bigint, gasPrice: bigint | undefined, formatEther: (wei: bigint) => string, latestBlockNumber?: bigint | null) {
   const parsedBlockNumber = Number(blockNumber);
   const confirmations = latestBlockNumber ? Number(latestBlockNumber - blockNumber + 1n) : undefined;
   const feeNative = gasPrice ? Number(formatEther(gasUsed * gasPrice)) : undefined;
@@ -415,6 +440,7 @@ function toSafeNumber(value?: bigint) {
 }
 
 async function getTokenTransferEventsFromLogs(logs: readonly ReceiptLogInput[], chainId: SupportedChainId) {
+  const viem = await import('viem');
   const transfers = await Promise.all(
     logs.map(async (log) => {
       const parsed = parseTransferLog(log);
@@ -425,7 +451,7 @@ async function getTokenTransferEventsFromLogs(logs: readonly ReceiptLogInput[], 
 
       const metadata = await getTokenMetadata(log.address, chainId);
       const decimals = metadata?.decimals ?? 18;
-      const amount = Number(formatUnits(parsed.value, decimals));
+      const amount = Number(viem.formatUnits(parsed.value, decimals));
 
       if (!Number.isFinite(amount)) {
         return null;
@@ -478,8 +504,30 @@ function topicToAddress(topic?: Hex): Address | null {
   return toEvmAddress(`0x${topic.slice(-40)}`);
 }
 
+function toViemChain(chainId: SupportedChainId): WebViemChain {
+  const chain = supportedChains[chainId];
+
+  return {
+    blockExplorers: {
+      default: {
+        name: chain.shortName,
+        url: chain.explorerBaseUrl,
+      },
+    },
+    id: chain.id,
+    name: chain.name,
+    nativeCurrency: chain.nativeCurrency,
+    rpcUrls: {
+      default: {
+        http: [chain.rpcUrl],
+      },
+    },
+    testnet: chain.id === 97,
+  };
+}
+
 async function estimateTokenTransferGas(
-  client: ReturnType<typeof getPublicClient>,
+  client: Awaited<ReturnType<typeof getPublicClient>>,
   {
     account,
     amount,
@@ -498,7 +546,7 @@ async function estimateTokenTransferGas(
     throw new Error('Token contract is missing.');
   }
 
-  const data = encodeBep20Transfer(recipient, amount, asset.decimals);
+  const data = await encodeBep20Transfer(recipient, amount, asset.decimals);
 
   if (!data) {
     throw new Error('Invalid recipient.');

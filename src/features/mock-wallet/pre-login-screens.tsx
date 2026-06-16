@@ -1,4 +1,3 @@
-import { useRouter } from 'expo-router';
 import { ArrowRight, Mail } from 'lucide-react-native';
 import { useState } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
@@ -10,18 +9,20 @@ import {
 } from '@/features/mock-wallet/ui';
 
 export function WelcomeScreen() {
-  const router = useRouter();
   const { isReady, signInWithGoogle } = useAuthSession();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const continueWithGoogle = async () => {
     if (!isReady || isSigningIn) {
       return;
     }
 
     setIsSigningIn(true);
+    setErrorMessage(null);
     try {
       await signInWithGoogle();
-      router.replace('/');
+    } catch (error) {
+      setErrorMessage(getSignInErrorMessage(error));
     } finally {
       setIsSigningIn(false);
     }
@@ -53,10 +54,21 @@ export function WelcomeScreen() {
             </View>
             <ArrowRight color="#07100B" size={18} />
           </Pressable>
+          {errorMessage ? <AppText style={styles.errorText}>{errorMessage}</AppText> : null}
         </View>
       </View>
     </AppScreen>
   );
+}
+
+function getSignInErrorMessage(error: unknown) {
+  const message = error instanceof Error ? error.message : '';
+
+  if (message.toLowerCase().includes('google') && message.toLowerCase().includes('not allowed')) {
+    return 'Google sign-in is not enabled.';
+  }
+
+  return 'Sign-in failed.';
 }
 
 const styles = StyleSheet.create({
@@ -84,6 +96,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 9,
+  },
+  errorText: {
+    color: '#FF6B6B',
+    fontSize: 13,
+    lineHeight: 18,
+    paddingHorizontal: 2,
+    textAlign: 'center',
   },
   logoPlate: {
     alignItems: 'center',

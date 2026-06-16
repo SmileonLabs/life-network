@@ -1,4 +1,4 @@
-import { ArrowDownToLine, ArrowUpRight, CreditCard, Repeat2 } from 'lucide-react-native';
+import { ArrowDownToLine, ArrowUpRight } from 'lucide-react-native';
 
 import { useTokenBalances } from '@/features/tokens/hooks/use-token-balances';
 import { useWallet } from '@/features/wallet/hooks/use-wallet';
@@ -30,18 +30,6 @@ export function LifeBalanceHero() {
           href: '/receive',
           tone: 'neutral',
           icon: <ArrowDownToLine color={colors.text} size={18} />,
-        },
-        {
-          label: 'Swap',
-          description: 'Soon',
-          tone: 'cyan',
-          icon: <Repeat2 color={colors.cyan} size={18} />,
-        },
-        {
-          label: 'Buy',
-          description: 'Soon',
-          tone: 'amber',
-          icon: <CreditCard color={colors.amber} size={18} />,
         },
       ]}
       amount={formatCurrency(totalUsd)}

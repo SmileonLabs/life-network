@@ -2,7 +2,6 @@ import { type ComponentType } from 'react';
 import { type Href, Link, usePathname } from 'expo-router';
 import {
   Activity,
-  ArrowUpRight,
   CircleDollarSign,
   Home,
   UserRound,
@@ -21,9 +20,8 @@ type NavItem = {
 const navItems: NavItem[] = [
   { href: '/', label: 'Home', icon: Home },
   { href: '/tokens', label: 'Assets', icon: CircleDollarSign },
-  { href: '/send', label: 'Send', icon: ArrowUpRight },
   { href: '/activity', label: 'Activity', icon: Activity },
-  { href: '/profile', label: 'Me', icon: UserRound },
+  { href: '/profile', label: 'Profile', icon: UserRound },
 ];
 
 export function BottomNav() {

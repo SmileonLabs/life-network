@@ -10,7 +10,7 @@ export function PrivyProvider({ children }: { children: ReactNode }) {
   return (
     <ExpoPrivyProvider
       appId={env.privyAppId}
-      clientId={env.privyClientId}
+      clientId={env.privyMobileClientId}
       supportedChains={privySupportedChains}
       config={{
         embedded: {

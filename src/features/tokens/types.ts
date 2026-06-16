@@ -16,5 +16,5 @@ export type AssetBalance = {
   accent: string;
   verified: boolean;
   discoveredBy: 'core' | 'explorer' | 'manual';
+  ownerAddress?: string;
 };
-

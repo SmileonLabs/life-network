@@ -16,7 +16,6 @@ import {
   LockKeyhole,
   QrCode,
   Search,
-  Send,
   Settings,
   ShieldCheck,
   UserRound,
@@ -24,6 +23,7 @@ import {
   X,
 } from 'lucide-react-native';
 import {
+  Image,
   Platform,
   Modal,
   Pressable,
@@ -42,6 +42,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { MockActivity, MockAsset, MockWallet } from '@/features/mock-wallet/data';
 import { colors } from '@/shared/theme/tokens';
+
+const bnbTokenIcon = require('../../../assets/images/tokens/bnb.png');
 
 type Tone = 'primary' | 'muted' | 'subtle' | 'lime' | 'amber' | 'cyan' | 'danger';
 
@@ -143,11 +145,11 @@ export function TopBar({ backHref, right, title }: { backHref?: Href; right?: Re
   );
 }
 
-export function NetworkBadge() {
+export function NetworkBadge({ label = 'BSC Testnet' }: { label?: string }) {
   return (
     <View style={styles.networkBadge}>
       <View style={styles.networkDot} />
-      <AppText variant="caption">BSC</AppText>
+      <AppText variant="caption">{label}</AppText>
     </View>
   );
 }
@@ -284,6 +286,18 @@ export function StatusBadge({ status }: { status: 'Success' | 'Pending' | 'Faile
 }
 
 export function TokenMark({ asset, size = 42 }: { asset: Pick<MockAsset, 'accent' | 'symbol'>; size?: number }) {
+  const isBnbAsset = asset.symbol === 'BNB' || asset.symbol === 'tBNB';
+
+  if (isBnbAsset) {
+    return (
+      <Image
+        accessibilityIgnoresInvertColors
+        source={bnbTokenIcon}
+        style={[styles.tokenImage, { height: size, width: size }]}
+      />
+    );
+  }
+
   return (
     <View style={[styles.tokenMark, { borderColor: asset.accent, height: size, width: size }]}>
       <AppText style={{ color: asset.accent }} variant="caption">
@@ -475,9 +489,8 @@ export function BottomNav() {
   const items: { href: Href; icon: ComponentType<{ color?: string; size?: number }>; label: string }[] = [
     { href: '/', icon: Home, label: 'Home' },
     { href: '/tokens', icon: CircleDollarSign, label: 'Assets' },
-    { href: '/send', icon: Send, label: 'Send' },
     { href: '/activity', icon: Activity, label: 'Activity' },
-    { href: '/profile', icon: UserRound, label: 'Me' },
+    { href: '/profile', icon: UserRound, label: 'Profile' },
   ];
 
   return (
@@ -883,6 +896,9 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     borderWidth: 1,
     justifyContent: 'center',
+  },
+  tokenImage: {
+    borderRadius: 999,
   },
   topBar: {
     alignItems: 'center',

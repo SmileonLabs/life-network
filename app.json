@@ -8,9 +8,11 @@
     "scheme": "lifewallet",
     "userInterfaceStyle": "dark",
     "ios": {
+      "bundleIdentifier": "com.smileonlabs.lifewallet",
       "icon": "./assets/expo.icon"
     },
     "android": {
+      "package": "com.smileonlabs.lifewallet",
       "adaptiveIcon": {
         "backgroundColor": "#030612",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

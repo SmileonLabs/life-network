@@ -11,6 +11,7 @@ export type ChainConfig = {
   };
   explorerBaseUrl: string;
   explorerApiBaseUrl: string;
+  faucetUrl?: string;
   rpcUrl: string;
 };
 
@@ -39,6 +40,7 @@ export const BSC_TESTNET: ChainConfig = {
   },
   explorerBaseUrl: 'https://testnet.bscscan.com',
   explorerApiBaseUrl: 'https://api.etherscan.io/v2/api',
+  faucetUrl: 'https://www.bnbchain.org/en/testnet-faucet',
   rpcUrl: process.env.EXPO_PUBLIC_BSC_TESTNET_RPC_URL ?? 'https://data-seed-prebsc-1-s1.binance.org:8545',
 };
 
@@ -47,5 +49,4 @@ export const supportedChains = {
   97: BSC_TESTNET,
 } as const;
 
-export const defaultChain = BSC_MAINNET;
-
+export const defaultChain = BSC_TESTNET;

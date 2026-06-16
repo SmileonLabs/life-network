@@ -216,7 +216,7 @@ Immediate screens:
    - Total value
    - LIFE balance
    - BNB gas balance
-   - Send / Receive / Swap placeholder / Buy placeholder
+   - Send / Receive
    - Recent activity
 
 6. `Assets`
@@ -264,8 +264,6 @@ Immediate screens:
 
 Later screens:
 
-- Swap
-- Buy
 - WalletConnect
 - Connected dApps
 - Token approvals

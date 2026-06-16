@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useMemo } from 'react';
+import { type Href, useGlobalSearchParams, useRouter } from 'expo-router';
 import {
   PrivyProvider as ReactPrivyProvider,
   useCreateWallet,
@@ -14,23 +15,27 @@ import type { AuthAdapter } from '@/features/auth/services/auth-adapter.types';
 import type { AuthUser } from '@/features/auth/types';
 import type { Eip1193Provider, WalletAdapter } from '@/features/wallet/services/wallet-adapter.types';
 import { PrivyWebBridge } from '@/providers/privy-web-bridge';
-import { bscMainnetViem, supportedViemChains } from '@/shared/config/viem-chains';
+import { bscTestnetViem, supportedViemChains } from '@/shared/config/viem-chains';
 import { env } from '@/shared/config/env';
+import { clearPendingAuthRedirect, getSafeAppPath, readPendingAuthRedirect } from '@/shared/utils/routes';
 
 const privySupportedChains = [supportedViemChains[0], supportedViemChains[1]];
 
 export function PrivyWebLiveProvider({ children }: { children: ReactNode }) {
+  const oauthRedirectUrl = typeof window === 'undefined' ? undefined : window.location.origin;
+
   return (
     <ReactPrivyProvider
       appId={env.privyAppId}
-      clientId={env.privyClientId || undefined}
+      clientId={env.privyWebClientId || undefined}
       config={{
-        defaultChain: bscMainnetViem,
+        defaultChain: bscTestnetViem,
         embeddedWallets: {
           ethereum: {
             createOnLogin: 'all-users',
           },
         },
+        customOAuthRedirectUrl: oauthRedirectUrl,
         loginMethods: ['google'],
         supportedChains: privySupportedChains,
       }}>
@@ -52,7 +57,17 @@ function PrivyWebLiveBridge({ children }: { children: ReactNode }) {
 
 function useLiveAuthAdapter(): AuthAdapter {
   const { authenticated, error, ready, logout, user } = usePrivy();
-  const { initOAuth, loading } = useLoginWithOAuth();
+  const router = useRouter();
+  const params = useGlobalSearchParams<{ redirect?: string }>();
+  const redirectPath = getSafeAppPath(params.redirect, readPendingAuthRedirect());
+  const { initOAuth, loading } = useLoginWithOAuth({
+    onComplete: () => {
+      clearPendingAuthRedirect();
+      if (redirectPath !== '/' || getBrowserPathname() === '/sign-in') {
+        router.replace(redirectPath as Href);
+      }
+    },
+  });
 
   const signInWithGoogle = useCallback(async () => {
     await initOAuth({ provider: 'google' });
@@ -174,4 +189,8 @@ function getInitials(value: string) {
     .join('');
 
   return initials || 'LM';
+}
+
+function getBrowserPathname() {
+  return typeof window === 'undefined' ? '/' : window.location.pathname;
 }

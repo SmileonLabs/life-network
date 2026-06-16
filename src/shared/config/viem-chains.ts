@@ -35,4 +35,4 @@ export const bscTestnetViem = {
   testnet: true,
 };
 
-export const supportedViemChains = [bscMainnetViem, bscTestnetViem] as const;
+export const supportedViemChains = [bscTestnetViem, bscMainnetViem] as const;

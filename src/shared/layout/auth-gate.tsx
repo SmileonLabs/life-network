@@ -1,60 +1,84 @@
-import { type Href, usePathname, useRouter } from 'expo-router';
+import { type Href, useGlobalSearchParams, usePathname, useRouter } from 'expo-router';
 import { type ReactNode, useEffect } from 'react';
 
 import { useAuthSession } from '@/features/auth/hooks/use-auth-session';
-import { useWallet } from '@/features/wallet/hooks/use-wallet';
+import { clearPendingAuthRedirect, getSafeAppPath, readPendingAuthRedirect, writePendingAuthRedirect } from '@/shared/utils/routes';
+
+const unauthenticatedRedirectDelayMs = 900;
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
+  const params = useGlobalSearchParams<{ redirect?: string }>();
+  const effectivePathname = getEffectivePathname(pathname);
+  const storedRedirectPath = readPendingAuthRedirect();
   const { isAuthenticated, isReady } = useAuthSession();
-  const { wallets } = useWallet();
-  const isOnboardingRoute = pathname.startsWith('/onboarding');
-  const isPublicRoute = pathname === '/sign-in';
-  const hasWallet = wallets.length > 0;
+  const isOnboardingRoute = effectivePathname.startsWith('/onboarding');
+  const isPublicRoute = effectivePathname === '/sign-in';
   const redirectHref = getRedirectHref({
-    hasWallet,
     isAuthenticated,
     isReady,
     isOnboardingRoute,
     isPublicRoute,
-    pathname,
+    pathname: effectivePathname,
+    redirectPath: params.redirect,
+    storedRedirectPath,
   });
 
   useEffect(() => {
-    if (redirectHref) {
-      router.replace(redirectHref);
+    if (!redirectHref) {
+      return undefined;
     }
-  }, [redirectHref, router]);
+
+    if (isSignInRedirect(redirectHref)) {
+      writePendingAuthRedirect(effectivePathname);
+      const redirectTimer = setTimeout(() => {
+        router.replace(redirectHref);
+      }, unauthenticatedRedirectDelayMs);
+
+      return () => clearTimeout(redirectTimer);
+    }
+
+    if (effectivePathname === '/sign-in') {
+      clearPendingAuthRedirect();
+    }
+    router.replace(redirectHref);
+    return undefined;
+  }, [effectivePathname, redirectHref, router]);
 
   return children;
 }
 
 function getRedirectHref({
-  hasWallet,
   isAuthenticated,
   isReady,
   isOnboardingRoute,
   isPublicRoute,
   pathname,
+  redirectPath,
+  storedRedirectPath,
 }: {
-  hasWallet: boolean;
   isAuthenticated: boolean;
   isReady: boolean;
   isOnboardingRoute: boolean;
   isPublicRoute: boolean;
   pathname: string;
+  redirectPath?: string;
+  storedRedirectPath: string;
 }): Href | null {
   if (!isReady) {
     return null;
   }
 
   if (!isAuthenticated) {
-    return isPublicRoute ? null : '/sign-in';
-  }
-
-  if (!hasWallet) {
-    return isPublicRoute ? null : '/sign-in';
+    return isPublicRoute
+      ? null
+      : {
+          pathname: '/sign-in',
+          params: {
+            redirect: pathname,
+          },
+        };
   }
 
   if (isOnboardingRoute) {
@@ -62,8 +86,21 @@ function getRedirectHref({
   }
 
   if (pathname === '/sign-in') {
-    return '/';
+    return getSafeAppPath(redirectPath, storedRedirectPath) as Href;
   }
 
   return null;
+}
+
+function isSignInRedirect(href: Href) {
+  return typeof href === 'object' && 'pathname' in href && href.pathname === '/sign-in';
+}
+
+function getEffectivePathname(pathname: string) {
+  if (pathname !== '/' || typeof window === 'undefined') {
+    return pathname;
+  }
+
+  const browserPathname = window.location.pathname;
+  return browserPathname && browserPathname !== '/' ? browserPathname : pathname;
 }
