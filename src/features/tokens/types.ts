@@ -1,6 +1,6 @@
 import type { SupportedChainId } from '@/shared/config/chains';
 
-export type AssetType = 'native' | 'bep20';
+export type AssetType = 'native' | 'spl';
 
 export type AssetBalance = {
   id: string;
@@ -10,6 +10,7 @@ export type AssetBalance = {
   symbol: string;
   decimals: number;
   contractAddress?: string;
+  iconUrl?: string;
   balance: number;
   priceUsd: number;
   change24h: number;

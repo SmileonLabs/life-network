@@ -60,7 +60,7 @@ function HeaderActions({ profileHref }: { profileHref: Href }) {
   const chain = supportedChains[chainId];
 
   function toggleChain() {
-    setChainId(chainId === 56 ? 97 : 56);
+    setChainId(chainId === 103 ? 101 : 103);
   }
 
   return (
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: 260,
-    backgroundColor: 'rgba(68, 217, 255, 0.07)',
+    backgroundColor: 'rgba(194, 216, 254, 0.07)',
   },
   midBand: {
     position: 'absolute',
@@ -115,7 +115,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderBottomWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.045)',
-    backgroundColor: 'rgba(184, 255, 92, 0.035)',
+    backgroundColor: 'rgba(170, 183, 255, 0.035)',
     transform: [{ rotate: '-3deg' }],
   },
   root: {
@@ -165,7 +165,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: 'rgba(184, 255, 92, 0.28)',
-    backgroundColor: 'rgba(184, 255, 92, 0.1)',
+    borderColor: 'rgba(170, 183, 255, 0.28)',
+    backgroundColor: 'rgba(170, 183, 255, 0.1)',
   },
 });

@@ -102,16 +102,25 @@ function useMockAuthAdapter(): AuthAdapter {
 
 function useMockWalletAdapter(): WalletAdapter {
   const createWallet = useCallback(async () => null, []);
+  const exportPrivateKey = useCallback(async () => {
+    throw new Error('Private key export is only available after Privy login.');
+  }, []);
   const getProvider = useCallback(async () => null, []);
+  const signAndSendTransaction = useCallback(async () => null, []);
+  const signMessage = useCallback(async () => null, []);
 
   return useMemo(
     () => ({
       address: null,
       createWallet,
+      exportPrivateKey,
       getProvider,
       isReady: true,
+      privateKeyExportMode: 'unavailable' as const,
+      signAndSendTransaction,
+      signMessage,
     }),
-    [createWallet, getProvider],
+    [createWallet, exportPrivateKey, getProvider, signAndSendTransaction, signMessage],
   );
 }
 

@@ -81,8 +81,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
   },
   buttonPrimary: {
-    borderColor: 'rgba(184, 255, 92, 0.36)',
-    backgroundColor: 'rgba(184, 255, 92, 0.1)',
+    borderColor: 'rgba(170, 183, 255, 0.36)',
+    backgroundColor: 'rgba(170, 183, 255, 0.1)',
   },
   icon: {
     width: 34,
@@ -93,7 +93,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   iconPrimary: {
-    backgroundColor: 'rgba(184, 255, 92, 0.18)',
+    backgroundColor: 'rgba(170, 183, 255, 0.18)',
   },
   label: {
     fontSize: 9,

@@ -25,7 +25,7 @@ const navItems: NavItem[] = [
 ];
 
 export function BottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname() || '/';
 
   return (
     <View style={styles.bar}>
@@ -51,16 +51,18 @@ function BottomNavButton({ active, item }: { active: boolean; item: NavItem }) {
   );
 }
 
-function isActivePath(pathname: string, href: Href) {
+function isActivePath(pathname: string | undefined, href: Href) {
+  const currentPath = pathname || '/';
+
   if (typeof href !== 'string') {
     return false;
   }
 
   if (href === '/') {
-    return pathname === '/';
+    return currentPath === '/';
   }
 
-  return pathname.startsWith(href);
+  return currentPath.startsWith(href);
 }
 
 const styles = StyleSheet.create({
@@ -87,8 +89,8 @@ const styles = StyleSheet.create({
   },
   itemActive: {
     borderWidth: 1,
-    borderColor: 'rgba(184, 255, 92, 0.28)',
-    backgroundColor: 'rgba(184, 255, 92, 0.11)',
+    borderColor: 'rgba(170, 183, 255, 0.28)',
+    backgroundColor: 'rgba(170, 183, 255, 0.11)',
   },
   label: {
     fontSize: 10,

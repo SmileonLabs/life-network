@@ -1,6 +1,6 @@
 import { Text, type TextProps, StyleSheet } from 'react-native';
 
-import { colors, typography } from '@/shared/theme/tokens';
+import { colors, fonts, typography } from '@/shared/theme/tokens';
 
 type AppTextProps = TextProps & {
   variant?: 'hero' | 'title' | 'subtitle' | 'body' | 'caption' | 'mono';
@@ -21,11 +21,10 @@ const styles = StyleSheet.create({
   body: typography.body,
   caption: {
     ...typography.caption,
-    textTransform: 'uppercase',
   },
   mono: {
     ...typography.body,
-    fontFamily: 'monospace',
+    fontFamily: fonts.mono,
   },
   primary: {
     color: colors.text,
@@ -49,4 +48,3 @@ const styles = StyleSheet.create({
     color: colors.warning,
   },
 });
-

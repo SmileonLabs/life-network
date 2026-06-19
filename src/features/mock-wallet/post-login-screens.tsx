@@ -4,24 +4,23 @@ import {
   AlertTriangle,
   ArrowDownLeft,
   ArrowUpRight,
-  Ban,
   Check,
   ChevronRight,
-  Cloud,
+  Clock3,
   Copy,
   Download,
   ExternalLink,
-  KeyRound,
   LogOut,
   Plus,
   QrCode,
+  RefreshCw,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Trash2,
   Wallet,
 } from 'lucide-react-native';
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Linking, Pressable, Share, StyleSheet, View } from 'react-native';
 import QRCode from 'react-native-qrcode-svg';
 
@@ -32,26 +31,31 @@ import {
   ActionRail,
   ActivityListRow,
   AppButton,
+  AppChip,
   AppInput,
   AppScreen,
+  AppSurface,
   AppText,
   AssetListRow,
   BottomSheet,
   LargeBalanceHeader,
-  NetworkBadge,
+  InlineActionButton,
   SettingsRow,
   SettingsSection,
   StatusBadge,
   TokenMark,
   WalletRow,
 } from '@/features/mock-wallet/ui';
+import { useMissions } from '@/features/missions/hooks/use-missions';
 import type { AssetBalance } from '@/features/tokens/types';
 import { getGasReserveBnb } from '@/features/transfer/types';
+import { useWalletAdapter } from '@/features/wallet/services/wallet-adapter';
 import { useWallet } from '@/features/wallet/hooks/use-wallet';
 import type { WalletAccount } from '@/features/wallet/types';
 import { supportedChains, type SupportedChainId } from '@/shared/config/chains';
+import { colors, fonts } from '@/shared/theme/tokens';
 import { extractAddressFromText, extractTransactionHashFromText, isAddress, isSameAddress, isTransactionHash } from '@/shared/utils/address';
-import { formatCurrency, formatPercent, formatTokenAmount, shortAddress } from '@/shared/utils/format';
+import { formatCurrency, formatPercent, formatShortDate, formatShortTime, formatTokenAmount, formatWholeNumber, shortAddress } from '@/shared/utils/format';
 
 const toMockAsset = (asset: AssetBalance): MockAsset => {
   const value = asset.balance * asset.priceUsd;
@@ -62,7 +66,8 @@ const toMockAsset = (asset: AssetBalance): MockAsset => {
     balance: formatTokenAmount(asset.balance, asset.type === 'native' ? 6 : 2),
     change: formatPercent(asset.change24h),
     fiatValue: formatCurrency(value),
-    kind: asset.type === 'native' ? 'Gas' : asset.symbol === 'LIFE' ? 'Core' : 'BEP-20',
+    iconUrl: asset.iconUrl,
+    kind: asset.type === 'native' ? 'Gas' : asset.symbol === 'LIFE' ? 'Core' : 'SPL',
     name: asset.name,
     price: asset.priceUsd > 0 ? formatCurrency(asset.priceUsd) : '$0.00',
     symbol: asset.symbol,
@@ -110,7 +115,7 @@ const matchesActivityAsset = (activity: WalletActivity, asset: AssetBalance) => 
     return true;
   }
 
-  if (asset.type === 'bep20') {
+  if (asset.type === 'spl') {
     return Boolean(asset.contractAddress && activity.contractAddress && isSameAddress(asset.contractAddress, activity.contractAddress));
   }
 
@@ -133,13 +138,13 @@ const sanitizeAmountInput = (value: string) => {
 const sanitizeAddressInput = (value: string) => extractAddressFromText(value) ?? value.trim();
 const sanitizeHashInput = (value: string) => extractTransactionHashFromText(value) ?? value.trim();
 
-const getRecipientStatusLabel = (kind: 'account' | 'contract' | 'unknown', recipient: string) => {
+const getRecipientStatusLabel = (kind: 'account' | 'program' | 'unknown', recipient: string) => {
   if (!recipient.trim()) {
     return 'Not set';
   }
 
-  if (kind === 'contract') {
-    return 'Contract';
+  if (kind === 'program') {
+    return 'Program';
   }
 
   if (kind === 'account') {
@@ -175,7 +180,7 @@ const getSendErrorMessage = (error: unknown) => {
   }
 
   if (normalized.includes('rejected this transfer') || normalized.includes('revert') || normalized.includes('simulation failed')) {
-    return 'Token contract rejected this transfer.';
+    return 'Token rejected this transfer.';
   }
 
   if (normalized.includes('network') || normalized.includes('chain') || normalized.includes('rpc') || normalized.includes('timeout')) {
@@ -281,7 +286,7 @@ const getSyncNotice = (refreshError: string | null, area: 'assets' | 'activity' 
   return delayed ? 'Sync delayed' : 'Sync limited';
 };
 
-const selectableChains = [supportedChains[97], supportedChains[56]];
+const selectableChains = [supportedChains[103], supportedChains[101]];
 const activityFilters = [
   { label: 'All', value: 'all' },
   { label: 'In', value: 'in' },
@@ -293,55 +298,99 @@ const activityFilters = [
 type ActivityFilterValue = (typeof activityFilters)[number]['value'];
 
 export function HomeScreen() {
-  const { activeWallet, activities, assets, chainId, isRefreshing, lifeAsset, nativeAsset, refreshError, refreshWallet } = useWallet();
-  const chain = supportedChains[chainId];
+  const { activeWallet, activities, assets, isRefreshing, lifeAsset, refreshError, refreshWallet } = useWallet();
+  const missions = useMissions();
   const homeSyncNotice = getSyncNotice(refreshError, 'home');
   const assetRows = assets.slice(0, 3).map(toMockAsset);
   const recentActivities = activities.slice(0, 2).map(toMockActivity);
-  const needsTestGas = Boolean(chain.faucetUrl && (nativeAsset?.balance ?? 0) <= 0);
-  const openFaucet = () => {
-    if (chain.faucetUrl) {
-      Linking.openURL(chain.faucetUrl);
+  const heroLifeAsset = lifeAsset ? toMockAsset(lifeAsset) : mockAssets[0];
+  const lifeBalance = formatTokenAmount(lifeAsset?.balance ?? 0, 2);
+  const lifeValue = formatCurrency((lifeAsset?.balance ?? 0) * (lifeAsset?.priceUsd ?? 0));
+  const [copiedHomeAddress, setCopiedHomeAddress] = useState(false);
+  const homeAddressLabel = activeWallet ? shortAddress(activeWallet.address, 8, 6) : 'Creating wallet';
+  const copyHomeAddress = async () => {
+    if (activeWallet) {
+      await Clipboard.setStringAsync(activeWallet.address);
+      setCopiedHomeAddress(true);
+      setTimeout(() => setCopiedHomeAddress(false), 1200);
     }
   };
 
   return (
-    <AppScreen bottomNav>
-      <View style={styles.homeHeader}>
-        <View>
-          <AppText variant="caption" tone="muted">
-            LIFE NETWORK
-          </AppText>
-          <AppText variant="title">Wallet</AppText>
+    <AppScreen bottomNav refreshing={isRefreshing} onRefresh={refreshWallet}>
+      <AppSurface emphasis="accent" style={styles.lifeHero}>
+        <View style={styles.lifeHeroTop}>
+          <View style={styles.lifeHeroToken}>
+            <TokenMark asset={heroLifeAsset} size={56} />
+          </View>
+          <View style={styles.lifeHeroCopy}>
+            <AppText tone="muted" variant="caption">
+              LIFE balance
+            </AppText>
+            <AppText style={styles.lifeHeroTitle}>Your reward wallet</AppText>
+          </View>
+          <StatusBadge status={homeSyncNotice ?? (isRefreshing ? 'Updating' : 'Ready')} />
         </View>
-        <NetworkBadge label={chain.shortName} />
-      </View>
-
-      <LargeBalanceHeader
-        subtitle={`${chain.nativeCurrency.symbol} gas balance`}
-        value={`${formatTokenAmount(nativeAsset?.balance ?? 0, 6)} ${nativeAsset?.symbol ?? chain.nativeCurrency.symbol}`}
-        left={
-          <>
-            <MiniBalance label="LIFE" value={formatTokenAmount(lifeAsset?.balance ?? 0, 2)} />
-            <MiniBalance label={`${chain.nativeCurrency.symbol} gas`} value={formatTokenAmount(nativeAsset?.balance ?? 0, 6)} />
-          </>
-        }
-      />
-
-      <View style={styles.infoCardCompact}>
-        <InfoLine label="Network" tone="amber" value={chain.shortName} />
-        <InfoLine label="Wallet" tone={activeWallet ? 'lime' : 'amber'} value={activeWallet ? shortAddress(activeWallet.address, 8, 6) : 'Creating wallet'} />
-        <InfoLine label="Sync" tone={homeSyncNotice ? 'amber' : isRefreshing ? 'amber' : 'lime'} value={homeSyncNotice ?? (isRefreshing ? 'Updating' : 'Ready')} />
-      </View>
+        <View style={styles.lifeHeroValue}>
+          <AppText style={styles.lifeAmount}>{lifeBalance}</AppText>
+          <AppText tone="muted">{lifeValue} estimated value</AppText>
+        </View>
+        <Pressable
+          accessibilityLabel="Copy wallet address"
+          accessibilityRole="button"
+          disabled={!activeWallet}
+          onPress={copyHomeAddress}
+          style={({ pressed }) => [styles.homeAddressBar, pressed && activeWallet && styles.homeAddressBarPressed, !activeWallet && styles.homeAddressBarDisabled]}>
+          <View style={styles.homeAddressCopy}>
+            <AppText tone="muted" variant="caption">
+              Wallet
+            </AppText>
+            <AppText numberOfLines={1} style={styles.homeAddressText}>
+              {copiedHomeAddress ? 'Copied' : homeAddressLabel}
+            </AppText>
+          </View>
+          <Copy color={activeWallet ? colors.accent : colors.textSubtle} size={17} />
+        </Pressable>
+      </AppSurface>
 
       <ActionRail
         items={[
-          { href: '/send', icon: <ArrowUpRight color="#C7FF3D" size={19} />, label: 'Send' },
-          { href: '/receive', icon: <ArrowDownLeft color="#C7FF3D" size={19} />, label: 'Receive' },
-          { icon: <SlidersHorizontal color="#A5AEC0" size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshWallet },
-          ...(needsTestGas ? [{ icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Faucet', onPress: openFaucet }] : []),
+          { href: '/send', icon: <ArrowUpRight color={colors.accentInk} size={19} />, label: 'Send', tone: 'accent' as const },
+          { href: '/receive', icon: <ArrowDownLeft color={colors.text} size={19} />, label: 'Receive' },
+          { href: '/activity', icon: <Clock3 color={colors.text} size={19} />, label: 'Activity' },
+          { href: '/security', icon: <ShieldCheck color={colors.text} size={19} />, label: 'Security' },
         ]}
       />
+
+      <View style={styles.sectionBlock}>
+        <SectionHeader actionHref="/missions" actionLabel="Open" title="Today's Missions" />
+        <Link href="/missions" asChild>
+          <Pressable
+            accessibilityRole="button"
+            style={({ pressed }) => [styles.missionPreview, pressed && styles.missionPreviewPressed]}>
+            <View style={styles.missionPreviewTop}>
+              <View style={styles.missionPreviewCopy}>
+                <AppText tone="muted" variant="caption">
+                  LIFE Points
+                </AppText>
+                <AppText style={styles.missionPreviewTitle}>{formatWholeNumber(missions.points)} P</AppText>
+              </View>
+              <StatusBadge status={`${missions.completedCount}/${missions.totalMissions} done`} />
+            </View>
+            <View style={styles.missionPreviewTrack}>
+              <View style={[styles.missionPreviewFill, { width: `${(missions.completedCount / missions.totalMissions) * 100}%` }]} />
+            </View>
+            <View style={styles.missionPreviewMeta}>
+              <AppText tone="muted" variant="caption">
+                Streak {missions.streak} days
+              </AppText>
+              <AppText tone="muted" variant="caption">
+                Next +{missions.nextMilestone.points} P
+              </AppText>
+            </View>
+          </Pressable>
+        </Link>
+      </View>
 
       <View style={styles.sectionBlock}>
         <SectionHeader actionHref="/tokens" actionLabel="Manage" title="Assets" />
@@ -361,7 +410,7 @@ export function HomeScreen() {
             <ActivityListRow activity={activity} href={{ pathname: '/activity/[hash]', params: { hash: activity.hash } }} key={activity.hash} />
           ))
         ) : (
-          <EmptyState label={activeWallet ? 'No activity yet' : 'Creating wallet'} />
+          <EmptyState label={activeWallet ? 'Rewards and transfers will appear here' : 'Creating wallet'} />
         )}
       </View>
     </AppScreen>
@@ -370,11 +419,11 @@ export function HomeScreen() {
 
 export function AssetsScreen() {
   const router = useRouter();
-  const { addTokenByContract, assets, chainId, isRefreshing, lifeAsset, refreshError, refreshWallet, setChainId } = useWallet();
+  const { addTokenByContract: addTokenByMint, assets, chainId, isRefreshing, lifeAsset, refreshError, refreshWallet, setChainId } = useWallet();
   const syncNotice = getSyncNotice(refreshError, 'assets');
   const [query, setQuery] = useState('');
   const [addTokenVisible, setAddTokenVisible] = useState(false);
-  const [tokenContract, setTokenContract] = useState('');
+  const [tokenMint, setTokenMint] = useState('');
   const [addTokenError, setAddTokenError] = useState<string | null>(null);
   const [tokenNetworkHint, setTokenNetworkHint] = useState<{
     chainId: SupportedChainId;
@@ -396,14 +445,14 @@ export function AssetsScreen() {
     setTokenNetworkHint(null);
     setAddTokenVisible(true);
   };
-  const pasteTokenContract = async () => {
+  const pasteTokenMint = async () => {
     const clipboardText = await Clipboard.getStringAsync();
-    setTokenContract(sanitizeAddressInput(clipboardText));
+    setTokenMint(sanitizeAddressInput(clipboardText));
     setAddTokenError(null);
     setTokenNetworkHint(null);
   };
-  const clearTokenContract = () => {
-    setTokenContract('');
+  const clearTokenMint = () => {
+    setTokenMint('');
     setAddTokenError(null);
     setTokenNetworkHint(null);
   };
@@ -421,7 +470,7 @@ export function AssetsScreen() {
     setAddTokenError(null);
     setTokenNetworkHint(null);
     try {
-      const result = await addTokenByContract(tokenContract);
+      const result = await addTokenByMint(tokenMint);
 
       if (!result.asset) {
         setAddTokenError(result.error ?? 'Unable to add token.');
@@ -429,7 +478,7 @@ export function AssetsScreen() {
         return;
       }
 
-      setTokenContract('');
+      setTokenMint('');
       setAddTokenVisible(false);
       router.push({
         pathname: '/tokens/[address]',
@@ -441,20 +490,20 @@ export function AssetsScreen() {
   };
 
   return (
-    <AppScreen bottomNav title="Assets">
-      <AppInput icon={<Search color="#667085" size={18} />} onChangeText={setQuery} placeholder="Search assets" value={query} />
+    <AppScreen bottomNav refreshing={isRefreshing} onRefresh={refreshWallet}>
+      <AppInput icon={<Search color={colors.textSubtle} size={18} />} onChangeText={setQuery} placeholder="Search assets" value={query} />
       <View style={styles.assetPin}>
         <View style={styles.assetPinTop}>
           <TokenMark asset={pinnedLife} size={48} />
           <View style={styles.assetPinCopy}>
-            <AppText>LIFE</AppText>
-            <AppText tone="muted" variant="caption">
+            <AppText style={styles.assetPinTitle}>LIFE</AppText>
+            <AppText variant="caption" style={styles.assetPinMeta}>
               Core asset
             </AppText>
           </View>
           <View style={styles.assetPinValue}>
-            <AppText>{pinnedLife.fiatValue}</AppText>
-            <AppText tone="lime" variant="caption">
+            <AppText style={styles.assetPinFiat}>{pinnedLife.fiatValue}</AppText>
+            <AppText variant="caption" style={styles.assetPinChange}>
               {pinnedLife.change}
             </AppText>
           </View>
@@ -462,15 +511,15 @@ export function AssetsScreen() {
       </View>
       {syncNotice ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">{syncNotice}</AppText>
         </View>
       ) : null}
 
       <ActionRail
         items={[
-          { icon: <Plus color="#C7FF3D" size={19} />, label: 'Add token', onPress: openAddToken },
-          { icon: <SlidersHorizontal color="#A5AEC0" size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshWallet },
+          { icon: <Plus color={colors.accentInk} size={19} />, label: 'Add token', onPress: openAddToken, tone: 'accent' as const },
+          { icon: <RefreshCw color={colors.text} size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshWallet },
         ]}
       />
 
@@ -488,37 +537,33 @@ export function AssetsScreen() {
       <BottomSheet title="Add token" visible={addTokenVisible} onClose={() => setAddTokenVisible(false)}>
         <View style={styles.formStack}>
           <AppText tone="muted" variant="caption">
-            Contract
+            Token address
           </AppText>
           <AppInput
             onChangeText={(value) => {
-              setTokenContract(sanitizeAddressInput(value));
+              setTokenMint(sanitizeAddressInput(value));
               setAddTokenError(null);
               setTokenNetworkHint(null);
             }}
-            placeholder="0x token contract"
-            value={tokenContract}
+            placeholder="Token address"
+            value={tokenMint}
           />
           <View style={styles.inlineActionRow}>
-            <Pressable accessibilityRole="button" onPress={pasteTokenContract} style={styles.maxButton}>
-              <AppText tone="lime" variant="caption">Paste</AppText>
-            </Pressable>
-            {tokenContract.trim() ? (
-              <Pressable accessibilityRole="button" onPress={clearTokenContract} style={styles.maxButton}>
-                <AppText tone="muted" variant="caption">Clear</AppText>
-              </Pressable>
+            <InlineActionButton onPress={pasteTokenMint}>Paste</InlineActionButton>
+            {tokenMint.trim() ? (
+              <InlineActionButton muted onPress={clearTokenMint}>Clear</InlineActionButton>
             ) : null}
           </View>
         </View>
         {addTokenError ? (
           <View style={styles.warningPanel}>
-            <AlertTriangle color="#FF6B6B" size={18} />
+            <AlertTriangle color={colors.danger} size={18} />
             <AppText tone="danger">{addTokenError}</AppText>
           </View>
         ) : null}
         {tokenNetworkHint ? (
           <View style={styles.warningPanel}>
-            <AlertTriangle color="#F3BA2F" size={18} />
+            <AlertTriangle color={colors.amber} size={18} />
             <View style={styles.warningCopy}>
               <AppText tone="muted">
                 {tokenNetworkHint.symbol} is on {supportedChains[tokenNetworkHint.chainId].shortName}.
@@ -542,13 +587,13 @@ export function AssetDetailScreen() {
   const router = useRouter();
   const { activeWallet, activities, assets, chainId, removeManualToken } = useWallet();
   const chain = supportedChains[chainId];
-  const [copiedContract, setCopiedContract] = useState(false);
+  const [copiedMint, setCopiedMint] = useState(false);
   const [removeVisible, setRemoveVisible] = useState(false);
   const selectedAsset = assets.find((item) => (item.type === 'native' && params.address === 'native') || normalizeAssetAddress(item.contractAddress) === normalizeAssetAddress(params.address));
 
   if (!selectedAsset) {
     return (
-      <AppScreen bottomNav backHref="/tokens" title="Asset">
+      <AppScreen bottomNav>
         <EmptyState label="Asset not found" />
       </AppScreen>
     );
@@ -565,10 +610,10 @@ export function AssetDetailScreen() {
         : `${chain.explorerBaseUrl}`;
     Linking.openURL(target);
   };
-  const copyContract = async () => {
+  const copyMint = async () => {
     if (selectedAsset.contractAddress) {
       await Clipboard.setStringAsync(selectedAsset.contractAddress);
-      setCopiedContract(true);
+      setCopiedMint(true);
     }
   };
   const confirmRemove = () => {
@@ -579,7 +624,7 @@ export function AssetDetailScreen() {
   };
 
   return (
-    <AppScreen bottomNav backHref="/tokens">
+    <AppScreen bottomNav>
       <View style={styles.assetDetailHead}>
         <TokenMark asset={asset} size={54} />
         <View style={styles.assetDetailCopy}>
@@ -596,13 +641,14 @@ export function AssetDetailScreen() {
         items={[
           {
             href: { pathname: '/send', params: { asset: selectedAsset?.id ?? asset.address } },
-            icon: <ArrowUpRight color="#C7FF3D" size={19} />,
+            icon: <ArrowUpRight color={colors.accentInk} size={19} />,
             label: 'Send',
+            tone: 'accent' as const,
           },
-          { href: '/receive', icon: <ArrowDownLeft color="#C7FF3D" size={19} />, label: 'Receive' },
-          { icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Explorer', onPress: openAssetExplorer },
-          ...(selectedAsset.contractAddress ? [{ icon: <Copy color="#A5AEC0" size={19} />, label: copiedContract ? 'Copied' : 'Contract', onPress: copyContract }] : []),
-          ...(canRemove ? [{ icon: <Trash2 color="#FF6B6B" size={19} />, label: 'Remove', onPress: () => setRemoveVisible(true) }] : []),
+          { href: '/receive', icon: <ArrowDownLeft color={colors.text} size={19} />, label: 'Receive' },
+          { icon: <ExternalLink color={colors.text} size={19} />, label: 'Explorer', onPress: openAssetExplorer },
+          ...(selectedAsset.contractAddress ? [{ icon: <Copy color={colors.text} size={19} />, label: copiedMint ? 'Copied' : 'Copy Contract', onPress: copyMint }] : []),
+          ...(canRemove ? [{ icon: <Trash2 color={colors.danger} size={19} />, label: 'Remove', onPress: () => setRemoveVisible(true), tone: 'danger' as const }] : []),
         ]}
       />
 
@@ -610,7 +656,7 @@ export function AssetDetailScreen() {
         <InfoLine label="Price" value={asset.price} />
         <InfoLine label="24h" tone={asset.change.startsWith('-') ? 'danger' : 'lime'} value={asset.change} />
         <InfoLine label="Network" value={chain.shortName} />
-        <InfoLine label="Contract" value={selectedAsset?.contractAddress ? shortAddress(selectedAsset.contractAddress, 8, 6) : 'Native'} />
+        <InfoLine label="Token address" value={selectedAsset?.contractAddress ? shortAddress(selectedAsset.contractAddress, 8, 6) : 'Native'} />
       </View>
 
       <View style={styles.sectionBlock}>
@@ -630,7 +676,7 @@ export function AssetDetailScreen() {
           <InfoLine label="Network" value={chain.shortName} />
         </View>
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">This only hides the token from LIFE Wallet.</AppText>
         </View>
         <AppButton tone="danger" onPress={confirmRemove}>
@@ -654,7 +700,7 @@ export function SendScreen() {
   const [sentVisible, setSentVisible] = useState(false);
   const [amount, setAmount] = useState(() => sanitizeAmountInput(getRouteParam(params.amount)));
   const [recipient, setRecipient] = useState(() => sanitizeAddressInput(getRouteParam(params.recipient)));
-  const [recipientKind, setRecipientKind] = useState<'account' | 'contract' | 'unknown'>('unknown');
+  const [recipientKind, setRecipientKind] = useState<'account' | 'program' | 'unknown'>('unknown');
   const [recipientWarning, setRecipientWarning] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [submittedActivity, setSubmittedActivity] = useState<WalletActivity | null>(null);
@@ -694,12 +740,12 @@ export function SendScreen() {
       ? Math.max(selectedAsset.balance - gasEstimate, 0)
       : selectedAsset.balance
     : 0;
-  const isTokenTransfer = selectedAsset?.type === 'bep20';
+  const isTokenTransfer = selectedAsset?.type === 'spl';
   const gasAfterSend = Math.max(nativeBalance - gasEstimate, 0);
   const hasLowGasAfterSend = Boolean(isTokenTransfer && nativeBalance > gasEstimate && gasAfterSend < gasEstimate);
-  const tokenContractAddress = isTokenTransfer ? selectedAsset.contractAddress : undefined;
-  const reviewOperation = isTokenTransfer ? 'BEP-20 transfer' : 'Native transfer';
-  const reviewTarget = tokenContractAddress ?? recipient;
+  const tokenMintAddress = isTokenTransfer ? selectedAsset.contractAddress : undefined;
+  const reviewOperation = isTokenTransfer ? 'SPL transfer' : 'SOL transfer';
+  const reviewTarget = tokenMintAddress ?? recipient;
   const recentRecipients = useMemo(
     () => getRecentRecipients(activities, chainId, activeWallet?.address),
     [activities, activeWallet?.address, chainId],
@@ -804,9 +850,9 @@ export function SendScreen() {
       await Clipboard.setStringAsync(recipient.trim());
     }
   };
-  const copyTokenContract = async () => {
-    if (tokenContractAddress) {
-      await Clipboard.setStringAsync(tokenContractAddress);
+  const copyTokenMint = async () => {
+    if (tokenMintAddress) {
+      await Clipboard.setStringAsync(tokenMintAddress);
     }
   };
   const openRecipientExplorer = () => {
@@ -814,9 +860,9 @@ export function SendScreen() {
       Linking.openURL(`${chain.explorerBaseUrl}/address/${recipient.trim()}`);
     }
   };
-  const openTokenContractExplorer = () => {
-    if (tokenContractAddress) {
-      Linking.openURL(`${chain.explorerBaseUrl}/address/${tokenContractAddress}`);
+  const openTokenMintExplorer = () => {
+    if (tokenMintAddress) {
+      Linking.openURL(`${chain.explorerBaseUrl}/address/${tokenMintAddress}`);
     }
   };
   const openReview = () => {
@@ -856,14 +902,7 @@ export function SendScreen() {
   };
 
   return (
-    <AppScreen
-      backHref="/"
-      title="Send"
-      fixedBottom={
-        <AppButton disabled={!canReview} style={[styles.fullFlex, !canReview && styles.disabledButton]} onPress={openReview}>
-          Review
-        </AppButton>
-      }>
+    <AppScreen backHref="/" title="Send">
       <View style={styles.formStack}>
         <AppText tone="muted" variant="caption">
           Asset
@@ -885,7 +924,7 @@ export function SendScreen() {
                     {option.balance} available
                   </AppText>
                 </View>
-                {active ? <Check color="#C7FF3D" size={17} /> : null}
+                {active ? <Check color={colors.accent} size={17} /> : null}
               </Pressable>
             );
           })}
@@ -896,15 +935,11 @@ export function SendScreen() {
         <AppText tone="muted" variant="caption">
           Recipient
         </AppText>
-        <AppInput onChangeText={(value) => setRecipient(sanitizeAddressInput(value))} placeholder="0x address" value={recipient} />
+        <AppInput onChangeText={(value) => setRecipient(sanitizeAddressInput(value))} placeholder="Solana address" value={recipient} />
         <View style={styles.inlineActionRow}>
-          <Pressable accessibilityRole="button" onPress={pasteRecipient} style={styles.maxButton}>
-            <AppText tone="lime" variant="caption">Paste</AppText>
-          </Pressable>
+          <InlineActionButton onPress={pasteRecipient}>Paste</InlineActionButton>
           {recipient.trim() ? (
-            <Pressable accessibilityRole="button" onPress={clearRecipient} style={styles.maxButton}>
-              <AppText tone="muted" variant="caption">Clear</AppText>
-            </Pressable>
+            <InlineActionButton muted onPress={clearRecipient}>Clear</InlineActionButton>
           ) : null}
         </View>
         {!recipient.trim() && recentRecipients.length > 0 ? (
@@ -916,7 +951,7 @@ export function SendScreen() {
                 onPress={() => selectRecentRecipient(item.address)}
                 style={styles.recipientSuggestion}>
                 <View style={styles.recipientSuggestionIcon}>
-                  <Wallet color="#C7FF3D" size={16} />
+                  <Wallet color={colors.accent} size={16} />
                 </View>
                 <View style={styles.recipientSuggestionCopy}>
                   <AppText>{item.label}</AppText>
@@ -924,7 +959,7 @@ export function SendScreen() {
                     {item.meta}
                   </AppText>
                 </View>
-                <ChevronRight color="#667085" size={16} />
+                <ChevronRight color={colors.textSubtle} size={16} />
               </Pressable>
             ))}
           </View>
@@ -945,9 +980,7 @@ export function SendScreen() {
           style={styles.amountInput}
         />
         <AppText tone="muted">{selected.symbol} · {fiatAmount}</AppText>
-        <Pressable accessibilityRole="button" onPress={fillMaxAmount} style={styles.maxButton}>
-          <AppText tone="lime" variant="caption">Max</AppText>
-        </Pressable>
+        <InlineActionButton onPress={fillMaxAmount}>Max</InlineActionButton>
       </View>
 
       {hasPrefilledDraft ? (
@@ -958,7 +991,7 @@ export function SendScreen() {
       ) : null}
 
       <View style={styles.infoCard}>
-        <InfoLine label="Gas reserve" value={isEstimatingFee ? 'Estimating' : `${formatTokenAmount(gasEstimate, 8)} ${nativeAsset?.symbol ?? 'tBNB'}`} />
+        <InfoLine label="Network fee" value={isEstimatingFee ? 'Estimating' : `${formatTokenAmount(gasEstimate, 8)} ${nativeAsset?.symbol ?? 'SOL'}`} />
         <InfoLine label="Network" value={chain.shortName} />
         <InfoLine label="Recipient" value={recipientStatusLabel} />
         <InfoLine label="From" value={activeWallet ? shortAddress(activeWallet.address, 8, 6) : 'Creating wallet'} />
@@ -966,21 +999,21 @@ export function SendScreen() {
 
       {recipientSafetyWarning && hasStartedSend ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">{recipientSafetyWarning}</AppText>
         </View>
       ) : null}
 
       {feeError && hasStartedSend ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">{feeError}</AppText>
         </View>
       ) : null}
 
       {nativeBalance <= 0 && chain.faucetUrl ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <View style={styles.warningCopy}>
             <AppText tone="muted">You need {chain.nativeCurrency.symbol} for gas.</AppText>
             <Pressable accessibilityRole="link" onPress={openFaucet}>
@@ -992,14 +1025,14 @@ export function SendScreen() {
 
       {hasLowGasAfterSend ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">Gas balance will be low after this transfer.</AppText>
         </View>
       ) : null}
 
       {validation.errors.length > 0 && hasStartedSend ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <View style={styles.warningCopy}>
             {validation.errors.slice(0, 3).map((error) => (
               <AppText key={error} tone="muted">
@@ -1012,14 +1045,18 @@ export function SendScreen() {
 
       {sendError ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#FF6B6B" size={18} />
+          <AlertTriangle color={colors.danger} size={18} />
           <AppText tone="danger">{sendError}</AppText>
         </View>
       ) : null}
 
+      <AppButton disabled={!canReview} style={!canReview && styles.disabledButton} onPress={openReview}>
+        Review
+      </AppButton>
+
       <BottomSheet title="Review send" visible={reviewVisible} onClose={() => setReviewVisible(false)}>
         <View style={styles.reviewHero}>
-          <ArrowUpRight color="#C7FF3D" size={22} />
+          <ArrowUpRight color={colors.accent} size={22} />
           <View style={styles.reviewHeroCopy}>
             <AppText>{displayAmount} {selected.symbol}</AppText>
             <AppText tone="muted" variant="caption">
@@ -1031,35 +1068,41 @@ export function SendScreen() {
           <InfoLine label="Action" value={reviewOperation} />
           <InfoLine label="You send" value={`${displayAmount} ${selected.symbol}`} />
           <InfoLine label="Recipient" value={shortAddress(recipient, 8, 6)} />
-          <InfoLine label="Recipient type" tone={recipientKind === 'contract' ? 'amber' : 'primary'} value={recipientStatusLabel} />
+          <InfoLine label="Recipient type" tone={recipientKind === 'program' ? 'amber' : 'primary'} value={recipientStatusLabel} />
           <InfoLine label="Call target" value={shortAddress(reviewTarget, 8, 6)} />
-          {tokenContractAddress ? <InfoLine label="Function" value="transfer(address,uint256)" /> : null}
-          {tokenContractAddress ? <InfoLine label="Token contract" value={shortAddress(tokenContractAddress, 8, 6)} /> : null}
+          {tokenMintAddress ? <InfoLine label="Function" value="SPL transfer" /> : null}
+          {tokenMintAddress ? <InfoLine label="Token address" value={shortAddress(tokenMintAddress, 8, 6)} /> : null}
           <InfoLine label="From" value={activeWallet ? shortAddress(activeWallet.address, 8, 6) : 'Creating wallet'} />
-          <InfoLine label="Gas reserve" value={`${formatTokenAmount(gasEstimate, 8)} ${nativeAsset?.symbol ?? 'tBNB'}`} />
+          <InfoLine label="Network fee" value={`${formatTokenAmount(gasEstimate, 8)} ${nativeAsset?.symbol ?? 'SOL'}`} />
           <InfoLine label="Gas balance" value={`${formatTokenAmount(nativeBalance, 6)} ${nativeAsset?.symbol ?? chain.nativeCurrency.symbol}`} />
           {isTokenTransfer ? <InfoLine label="Gas after" tone={hasLowGasAfterSend ? 'amber' : 'primary'} value={`${formatTokenAmount(gasAfterSend, 6)} ${nativeAsset?.symbol ?? chain.nativeCurrency.symbol}`} /> : null}
           {remainingAfterSend !== null ? <InfoLine label="After" value={`${formatTokenAmount(remainingAfterSend, selectedAsset?.type === 'native' ? 6 : 4)} ${selected.symbol}`} /> : null}
           <InfoLine label="Network" value={chain.shortName} />
         </View>
-        {recipientKind === 'contract' ? (
+        {recipientKind === 'program' ? (
           <View style={styles.warningPanel}>
-            <AlertTriangle color="#F3BA2F" size={18} />
-            <AppText tone="muted">Recipient is a contract address. Confirm this is intended.</AppText>
+            <AlertTriangle color={colors.amber} size={18} />
+            <AppText tone="muted">Recipient is a program account. Confirm this is intended.</AppText>
           </View>
         ) : null}
         <ActionRail
           items={[
-            { icon: <Copy color="#C7FF3D" size={19} />, label: 'Copy to', onPress: copyRecipientAddress },
-            { icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Recipient', onPress: openRecipientExplorer },
-            ...(tokenContractAddress
+            { icon: <Copy color={colors.text} size={19} />, label: 'Copy to', onPress: copyRecipientAddress },
+            { icon: <ExternalLink color={colors.text} size={19} />, label: 'Recipient', onPress: openRecipientExplorer },
+            ...(tokenMintAddress
               ? [
-                  { icon: <Copy color="#A5AEC0" size={19} />, label: 'Copy token', onPress: copyTokenContract },
-                  { icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Contract', onPress: openTokenContractExplorer },
+                  { icon: <Copy color={colors.text} size={19} />, label: 'Copy Contract', onPress: copyTokenMint },
+                  { icon: <ExternalLink color={colors.text} size={19} />, label: 'Contract', onPress: openTokenMintExplorer },
                 ]
               : []),
           ]}
         />
+        {sendError ? (
+          <View style={styles.warningPanel}>
+            <AlertTriangle color={colors.danger} size={18} />
+            <AppText tone="danger">{sendError}</AppText>
+          </View>
+        ) : null}
         <AppButton disabled={isSubmitting} style={isSubmitting && styles.disabledButton} onPress={confirmSend}>
           {isSubmitting ? 'Sending' : 'Confirm Send'}
         </AppButton>
@@ -1070,9 +1113,9 @@ export function SendScreen() {
         {submittedActivity ? (
           <ActionRail
             items={[
-              { icon: <Copy color="#C7FF3D" size={19} />, label: 'Copy hash', onPress: () => Clipboard.setStringAsync(submittedActivity.hash) },
-              { icon: <ChevronRight color="#A5AEC0" size={19} />, label: 'Activity', onPress: () => router.push({ pathname: '/activity/[hash]', params: { hash: submittedActivity.hash } }) },
-              { icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Explorer', onPress: () => Linking.openURL(submittedActivity.explorerUrl) },
+              { icon: <Copy color={colors.text} size={19} />, label: 'Copy hash', onPress: () => Clipboard.setStringAsync(submittedActivity.hash) },
+              { icon: <ChevronRight color={colors.text} size={19} />, label: 'Activity', onPress: () => router.push({ pathname: '/activity/[hash]', params: { hash: submittedActivity.hash } }) },
+              { icon: <ExternalLink color={colors.text} size={19} />, label: 'Explorer', onPress: () => Linking.openURL(submittedActivity.explorerUrl) },
             ]}
           />
         ) : null}
@@ -1117,10 +1160,10 @@ export function ReceiveScreen() {
       <View style={styles.receiveCard}>
         <View style={styles.qrWrap}>
           {address ? (
-            <QRCode backgroundColor="transparent" color="#F7FAFF" size={190} value={address} />
+            <QRCode backgroundColor="transparent" color={colors.text} size={190} value={address} />
           ) : (
             <View style={styles.qrPlaceholder}>
-              <Wallet color="#A5AEC0" size={34} />
+              <Wallet color={colors.textMuted} size={34} />
               <AppText tone="muted">Creating wallet</AppText>
             </View>
           )}
@@ -1135,10 +1178,10 @@ export function ReceiveScreen() {
 
       <ActionRail
         items={[
-          { icon: <Copy color="#C7FF3D" size={19} />, label: copied ? 'Copied' : 'Copy', onPress: copyAddress },
-          { icon: <QrCode color="#A5AEC0" size={19} />, label: 'Share', onPress: shareAddress },
-          ...(hasFaucet ? [{ icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Faucet', onPress: openFaucet }] : []),
-          { icon: <SlidersHorizontal color="#A5AEC0" size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshBalance },
+          { icon: <Copy color={colors.accentInk} size={19} />, label: copied ? 'Copied' : 'Copy', onPress: copyAddress, tone: 'accent' as const },
+          { icon: <QrCode color={colors.text} size={19} />, label: 'Share', onPress: shareAddress },
+          ...(hasFaucet ? [{ icon: <ExternalLink color={colors.text} size={19} />, label: 'Faucet', onPress: openFaucet }] : []),
+          { icon: <RefreshCw color={colors.text} size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshBalance },
         ]}
       />
 
@@ -1149,13 +1192,13 @@ export function ReceiveScreen() {
       </View>
 
       <View style={styles.warningPanel}>
-        <AlertTriangle color="#F3BA2F" size={18} />
+        <AlertTriangle color={colors.amber} size={18} />
         <AppText tone="muted">Only send {chain.nativeCurrency.symbol} or {chain.shortName} assets to this address.</AppText>
       </View>
 
       {needsGas ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <View style={styles.warningCopy}>
             <AppText tone="muted">Request test gas, then refresh this wallet.</AppText>
             <Pressable accessibilityRole="button" onPress={faucetOpened ? refreshBalance : openFaucet}>
@@ -1214,25 +1257,23 @@ export function ActivityScreen() {
   };
 
   return (
-    <AppScreen bottomNav title="Activity">
+    <AppScreen bottomNav refreshing={isRefreshing} onRefresh={refreshActivity}>
       <View style={styles.filterRow}>
         <StatusBadge status={chain.shortName} />
         {isRefreshing ? <StatusBadge status="Updating" /> : null}
       </View>
-      <AppInput icon={<Search color="#667085" size={18} />} onChangeText={setActivityQuery} placeholder="Search activity" value={activityQuery} />
+      <AppInput icon={<Search color={colors.textSubtle} size={18} />} onChangeText={setActivityQuery} placeholder="Search activity" value={activityQuery} />
       <View style={styles.activityFilterRow}>
         {activityFilters.map((filter) => {
           const active = activityFilter === filter.value;
           return (
-            <Pressable
-              accessibilityRole="button"
+            <AppChip
+              active={active}
               key={filter.value}
-              onPress={() => setActivityFilter(filter.value)}
-              style={[styles.activityFilterButton, active && styles.activityFilterButtonActive]}>
-              <AppText tone={active ? 'lime' : 'muted'} variant="caption">
-                {filter.label}
-              </AppText>
-            </Pressable>
+              labelStyle={!active && styles.inactiveChipLabel}
+              onPress={() => setActivityFilter(filter.value)}>
+              {filter.label}
+            </AppChip>
           );
         })}
       </View>
@@ -1248,17 +1289,13 @@ export function ActivityScreen() {
             style={styles.lookupInput}
           />
           <Pressable accessibilityRole="button" onPress={openLookup} style={styles.lookupButton}>
-            <Search color="#C7FF3D" size={18} />
+            <Search color={colors.accent} size={18} />
           </Pressable>
         </View>
         <View style={styles.inlineActionRow}>
-          <Pressable accessibilityRole="button" onPress={pasteLookupHash} style={styles.maxButton}>
-            <AppText tone="lime" variant="caption">Paste</AppText>
-          </Pressable>
+          <InlineActionButton onPress={pasteLookupHash}>Paste</InlineActionButton>
           {lookupHash ? (
-            <Pressable accessibilityRole="button" onPress={clearLookupHash} style={styles.maxButton}>
-              <AppText tone="muted" variant="caption">Clear</AppText>
-            </Pressable>
+            <InlineActionButton muted onPress={clearLookupHash}>Clear</InlineActionButton>
           ) : null}
         </View>
         {lookupError ? (
@@ -1269,19 +1306,19 @@ export function ActivityScreen() {
       </View>
       <ActionRail
         items={[
-          { icon: <SlidersHorizontal color="#C7FF3D" size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshActivity },
-          ...(activeWallet ? [{ icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Explorer', onPress: openExplorer }] : []),
+          { icon: <RefreshCw color={colors.text} size={19} />, label: isRefreshing ? 'Updating' : 'Refresh', onPress: refreshActivity },
+          ...(activeWallet ? [{ icon: <ExternalLink color={colors.text} size={19} />, label: 'Explorer', onPress: openExplorer }] : []),
         ]}
       />
       {syncNotice ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">{syncNotice}</AppText>
         </View>
       ) : null}
       {pendingNotice ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">{pendingNotice}</AppText>
         </View>
       ) : null}
@@ -1329,14 +1366,14 @@ export function ProfileScreen() {
   };
 
   return (
-    <AppScreen bottomNav title="Profile">
+    <AppScreen bottomNav>
       <View style={styles.profileCard}>
         <View style={styles.profileMark}>
-          <Wallet color="#C7FF3D" size={22} />
+          <Wallet color={colors.accentInk} size={22} />
         </View>
         <View style={styles.profileCopy}>
-          <AppText>Main Wallet</AppText>
-          <AppText tone="muted" variant="caption">
+          <AppText style={styles.profileTitle}>Main Wallet</AppText>
+          <AppText variant="caption" style={styles.profileMeta}>
             {activeWallet ? shortAddress(activeWallet.address) : 'Creating wallet'}
           </AppText>
         </View>
@@ -1348,21 +1385,21 @@ export function ProfileScreen() {
       </View>
 
       <SettingsSection title="Wallets">
-        <SettingsRow icon={<Wallet color="#C7FF3D" size={18} />} meta={<StatusBadge status={String(wallets.length)} />} title="Wallets" onPress={() => router.push('/wallets')} />
+        <SettingsRow icon={<Wallet color={colors.accentInk} size={18} />} meta={<StatusBadge status={String(wallets.length)} />} title="Wallets" onPress={() => router.push('/wallets')} />
       </SettingsSection>
 
       <SettingsSection title="Network">
-        <SettingsRow icon={<SlidersHorizontal color="#C7FF3D" size={18} />} meta={<StatusBadge status={chain.shortName} />} title="Network" onPress={() => setNetworkSheetVisible(true)} />
-        {activeWallet ? <SettingsRow icon={<Copy color="#A5AEC0" size={18} />} title={copiedAddress ? 'Address copied' : 'Copy address'} onPress={copyAddress} /> : null}
-        {activeWallet ? <SettingsRow icon={<ExternalLink color="#A5AEC0" size={18} />} title="Explorer" onPress={openAddressExplorer} /> : null}
+        <SettingsRow icon={<SlidersHorizontal color={colors.accentInk} size={18} />} meta={<StatusBadge status={chain.shortName} />} title="Network" onPress={() => setNetworkSheetVisible(true)} />
+        {activeWallet ? <SettingsRow icon={<Copy color={colors.textMuted} size={18} />} title={copiedAddress ? 'Address copied' : 'Copy address'} onPress={copyAddress} /> : null}
+        {activeWallet ? <SettingsRow icon={<ExternalLink color={colors.textMuted} size={18} />} title="Explorer" onPress={openAddressExplorer} /> : null}
       </SettingsSection>
 
       <SettingsSection title="Security">
-        <SettingsRow icon={<ShieldCheck color="#C7FF3D" size={18} />} title="Security center" onPress={() => router.push('/security')} />
+        <SettingsRow icon={<ShieldCheck color={colors.accentInk} size={18} />} title="Security center" onPress={() => router.push('/security')} />
       </SettingsSection>
 
       <SettingsSection title="Account">
-        <SettingsRow icon={<LogOut color="#FF6B6B" size={18} />} title="Sign out" onPress={signOutWallet} />
+        <SettingsRow icon={<LogOut color={colors.danger} size={18} />} title="Sign out" onPress={signOutWallet} />
       </SettingsSection>
 
       <BottomSheet title="Network" visible={networkSheetVisible} onClose={() => setNetworkSheetVisible(false)}>
@@ -1382,7 +1419,7 @@ export function ProfileScreen() {
                     {option.nativeCurrency.symbol} · Chain ID {option.id}
                   </AppText>
                 </View>
-                {active ? <Check color="#C7FF3D" size={18} /> : null}
+                {active ? <Check color={colors.accentInk} size={18} /> : null}
               </Pressable>
             );
           })}
@@ -1397,27 +1434,44 @@ export function ProfileScreen() {
 }
 
 export function SecurityScreen() {
+  const router = useRouter();
+  const { activeWallet, isWalletInitializing, retryWalletSetup, walletSetupError } = useWallet();
+
   return (
     <AppScreen title="Security" backHref="/profile">
       <View style={styles.securityStatus}>
-        <ShieldCheck color="#C7FF3D" size={24} />
+        <ShieldCheck color={colors.accent} size={24} />
         <View style={styles.securityCopy}>
-          <AppText>Secure</AppText>
-          <AppText tone="muted" variant="caption">
-            Google connected
+          <AppText style={styles.securityTitle}>Private key</AppText>
+          <AppText variant="caption" style={styles.securityMeta}>
+            {walletSetupError ? 'Wallet needs attention' : activeWallet ? 'Export only when needed' : 'Creating wallet'}
           </AppText>
         </View>
+        <StatusBadge status={walletSetupError ? 'Retry' : activeWallet ? 'Active' : 'Pending'} />
       </View>
 
-      <SettingsSection title="Wallet">
-        <SettingsRow icon={<Cloud color="#A5AEC0" size={18} />} title="Backup" meta={<StatusBadge status="Later" />} />
-        <SettingsRow icon={<Download color="#A5AEC0" size={18} />} title="Export" meta={<StatusBadge status="Later" />} />
-        <SettingsRow icon={<KeyRound color="#A5AEC0" size={18} />} title="Recovery" meta={<StatusBadge status="Later" />} />
-      </SettingsSection>
+      {walletSetupError ? (
+        <View style={styles.warningPanel}>
+          <AlertTriangle color={colors.amber} size={18} />
+          <View style={styles.warningCopy}>
+            <AppText>Unable to start wallet.</AppText>
+            <AppText tone="muted" variant="caption">
+              {walletSetupError}
+            </AppText>
+            <Pressable accessibilityRole="button" disabled={isWalletInitializing} onPress={retryWalletSetup}>
+              <AppText tone="lime">{isWalletInitializing ? 'Retrying' : 'Retry wallet setup'}</AppText>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
 
-      <SettingsSection title="Network">
-        <SettingsRow icon={<ShieldCheck color="#A5AEC0" size={18} />} title="Approvals" meta={<StatusBadge status="0" />} />
-        <SettingsRow icon={<Ban color="#A5AEC0" size={18} />} title="dApps" meta={<StatusBadge status="0" />} />
+      <SettingsSection title="Wallet">
+        <SettingsRow
+          icon={<Download color={colors.danger} size={18} />}
+          title="Export Private Key"
+          meta={<StatusBadge status="High Risk" />}
+          onPress={() => router.push('/security/export')}
+        />
       </SettingsSection>
     </AppScreen>
   );
@@ -1442,54 +1496,117 @@ export function WalletsScreen() {
   );
 }
 
-export function BackupScreen() {
+export function ExportScreen() {
+  const params = useLocalSearchParams<{ auto?: string }>();
+  const { activeWallet, chainId } = useWallet();
+  const walletAdapter = useWalletAdapter();
+  const chain = supportedChains[chainId];
+  const [acceptedRisk, setAcceptedRisk] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const autoExportStartedRef = useRef(false);
+  const isUnavailable = walletAdapter.privateKeyExportMode === 'unavailable';
+  const shouldAutoExport = params.auto === '1' || params.auto === 'true';
+  const exportModeLabel =
+    walletAdapter.privateKeyExportMode === 'privy-modal'
+      ? 'Privy secure modal'
+      : walletAdapter.privateKeyExportMode === 'external-url'
+        ? 'Privy export page'
+        : 'Unavailable';
+
+  useEffect(() => {
+    if (!shouldAutoExport || autoExportStartedRef.current || !activeWallet || isUnavailable) {
+      return;
+    }
+
+    autoExportStartedRef.current = true;
+    setAcceptedRisk(true);
+    setExportError(null);
+    setIsExporting(true);
+
+    walletAdapter
+      .exportPrivateKey()
+      .catch((error) => {
+        autoExportStartedRef.current = false;
+        setExportError(error instanceof Error ? error.message : 'Private key export could not be opened.');
+      })
+      .finally(() => {
+        setIsExporting(false);
+      });
+  }, [activeWallet, isUnavailable, shouldAutoExport, walletAdapter]);
+
+  const startExport = async () => {
+    if (!acceptedRisk) {
+      setAcceptedRisk(true);
+      return;
+    }
+
+    setExportError(null);
+    setIsExporting(true);
+
+    try {
+      await walletAdapter.exportPrivateKey();
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'Private key export could not be opened.');
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   return (
-    <AppScreen title="Backup" backHref="/security">
+    <AppScreen title="Export Private Key" backHref="/security">
       <View style={styles.securityStatus}>
-        <Cloud color="#A5AEC0" size={24} />
+        <Download color={colors.danger} size={24} />
         <View style={styles.securityCopy}>
-          <AppText>Not available</AppText>
-          <AppText tone="muted" variant="caption">
-            Policy pending
+          <AppText style={styles.securityTitle}>External wallet access</AppText>
+          <AppText variant="caption" style={styles.securityMeta}>
+            Use this wallet in Phantom, Solflare, or Backpack
           </AppText>
         </View>
-        <StatusBadge status="Later" />
+        <StatusBadge status="High Risk" />
       </View>
 
-      <View style={styles.infoCard}>
-        <InfoLine label="Google" tone="lime" value="Connected" />
-        <InfoLine label="Backup" value="Disabled" />
-        <InfoLine label="Export" value="Disabled" />
-      </View>
-    </AppScreen>
-  );
-}
-
-export function ExportScreen() {
-  return (
-    <AppScreen title="Export" backHref="/security">
       <View style={styles.keyPanel}>
         <View style={styles.keyPanelTop}>
-          <Download color="#A5AEC0" size={20} />
-          <AppText>Not available</AppText>
+          <AlertTriangle color={colors.danger} size={20} />
+          <AppText>Protect this key</AppText>
         </View>
         <AppText tone="muted">
-          Key export is disabled for this MVP.
+          Anyone with this private key can move every asset in this wallet. LIFE never stores it.
         </AppText>
       </View>
-    </AppScreen>
-  );
-}
 
-export function RecoveryScreen() {
-  return (
-    <AppScreen title="Recovery" backHref="/security">
       <View style={styles.infoCard}>
-        <InfoLine label="Account" tone="lime" value="Google" />
-        <InfoLine label="Backup" value="Disabled" />
-        <InfoLine label="Access" tone="lime" value="Google" />
-        <InfoLine label="Wallet" value="Embedded" />
+        <InfoLine label="Wallet" value={activeWallet?.address ? shortAddress(activeWallet.address, 8, 6) : 'Creating'} />
+        <InfoLine label="Network" value={chain.shortName} />
+        <InfoLine label="Method" tone={isUnavailable ? 'amber' : 'lime'} value={exportModeLabel} />
       </View>
+
+      {isUnavailable ? (
+        <View style={styles.warningPanel}>
+          <AlertTriangle color={colors.amber} size={18} />
+          <View style={styles.warningCopy}>
+            <AppText>Private key export is unavailable in this build.</AppText>
+            <AppText tone="muted" variant="caption">
+              Open the web app to export through the Privy secure modal.
+            </AppText>
+          </View>
+        </View>
+      ) : null}
+
+      {exportError ? (
+        <View style={styles.warningPanel}>
+          <AlertTriangle color={colors.danger} size={18} />
+          <AppText tone="danger">{exportError}</AppText>
+        </View>
+      ) : null}
+
+      <AppButton
+        disabled={!activeWallet || isExporting || isUnavailable}
+        onPress={startExport}
+        tone={acceptedRisk ? 'danger' : 'secondary'}>
+        {isExporting ? 'Opening' : acceptedRisk ? (isUnavailable ? 'Export Unavailable' : 'Open Secure Export') : 'I understand'}
+      </AppButton>
     </AppScreen>
   );
 }
@@ -1540,7 +1657,7 @@ export function ActivityDetailScreen() {
         .then((lookupResult) => {
           if (!cancelled) {
             setLookedUpActivity(lookupResult?.activity ?? null);
-            setLookupError(lookupResult ? null : 'Transaction not found on BSC or BSC Testnet.');
+            setLookupError(lookupResult ? null : 'Transaction not found on Solana or Solana Testnet.');
           }
         })
         .catch(() => {
@@ -1590,7 +1707,7 @@ export function ActivityDetailScreen() {
       lookupActivityAcrossChains(hash)
         .then((lookupResult) => {
           setLookedUpActivity(lookupResult?.activity ?? null);
-          setLookupError(lookupResult ? null : 'Transaction not found on BSC or BSC Testnet.');
+          setLookupError(lookupResult ? null : 'Transaction not found on Solana or Solana Testnet.');
         })
         .catch(() => setLookupError('Unable to look up this transaction.'))
         .finally(() => setIsLookingUp(false));
@@ -1609,9 +1726,9 @@ export function ActivityDetailScreen() {
         <EmptyState label={emptyLabel} />
         <ActionRail
           items={[
-            { icon: <Copy color="#C7FF3D" size={19} />, label: 'Copy hash', onPress: copyHash },
-            ...(isTransactionHash(hash) ? [{ icon: <SlidersHorizontal color="#A5AEC0" size={19} />, label: 'Retry', onPress: refreshStatus }] : []),
-            { icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Explorer', onPress: openExplorer },
+            { icon: <Copy color={colors.accentInk} size={19} />, label: 'Copy hash', onPress: copyHash, tone: 'accent' as const },
+            ...(isTransactionHash(hash) ? [{ icon: <RefreshCw color={colors.text} size={19} />, label: 'Retry', onPress: refreshStatus }] : []),
+            { icon: <ExternalLink color={colors.text} size={19} />, label: 'Explorer', onPress: openExplorer },
           ]}
         />
       </AppScreen>
@@ -1622,7 +1739,7 @@ export function ActivityDetailScreen() {
     <AppScreen title="Transaction" backHref="/activity">
       <View style={styles.reviewHero}>
         <View style={[styles.activityDetailIcon, activity.direction === 'in' ? styles.activityDetailIn : styles.activityDetailOut]}>
-          {activity.direction === 'in' ? <ArrowDownLeft color="#C7FF3D" size={22} /> : <ArrowUpRight color="#F3BA2F" size={22} />}
+          {activity.direction === 'in' ? <ArrowDownLeft color={colors.accent} size={22} /> : <ArrowUpRight color={colors.amber} size={22} />}
         </View>
         <View style={styles.reviewHeroCopy}>
           <AppText>{activity.amount}</AppText>
@@ -1643,24 +1760,24 @@ export function ActivityDetailScreen() {
         {resolvedActivity?.confirmations ? <InfoLine label="Confirmations" value={String(resolvedActivity.confirmations)} /> : null}
         {resolvedActivity?.from ? <InfoLine label="From" value={shortAddress(resolvedActivity.from, 8, 6)} /> : null}
         {resolvedActivity?.to ? <InfoLine label="To" value={shortAddress(resolvedActivity.to, 8, 6)} /> : null}
-        {resolvedActivity?.contractAddress ? <InfoLine label="Contract" value={shortAddress(resolvedActivity.contractAddress, 8, 6)} /> : null}
+        {resolvedActivity?.contractAddress ? <InfoLine label="Token address" value={shortAddress(resolvedActivity.contractAddress, 8, 6)} /> : null}
         {typeof resolvedActivity?.feeNative === 'number' ? <InfoLine label="Fee" value={`${formatTokenAmount(resolvedActivity.feeNative, 8)} ${displayChain.nativeCurrency.symbol}`} /> : null}
-        <InfoLine label="Explorer" value="BscScan" />
+        <InfoLine label="Explorer" value="Solana Explorer" />
       </View>
 
       {foundOnDifferentChain ? (
         <View style={styles.warningPanel}>
-          <AlertTriangle color="#F3BA2F" size={18} />
+          <AlertTriangle color={colors.amber} size={18} />
           <AppText tone="muted">Found on {displayChain.shortName}. Switch network to use wallet actions.</AppText>
         </View>
       ) : null}
 
       <ActionRail
         items={[
-          { icon: <Copy color="#C7FF3D" size={19} />, label: 'Copy hash', onPress: copyHash },
-          ...(resolvedActivity?.counterparty ? [{ icon: <Copy color="#A5AEC0" size={19} />, label: 'Copy address', onPress: copyCounterparty }] : []),
-          ...(resolvedActivity?.status === 'pending' ? [{ icon: <SlidersHorizontal color="#A5AEC0" size={19} />, label: isLookingUp ? 'Checking' : 'Refresh', onPress: refreshStatus }] : []),
-          ...(foundOnDifferentChain ? [{ icon: <SlidersHorizontal color="#A5AEC0" size={19} />, label: 'Switch network', onPress: switchToActivityNetwork }] : []),
+          { icon: <Copy color={colors.accentInk} size={19} />, label: 'Copy hash', onPress: copyHash, tone: 'accent' as const },
+          ...(resolvedActivity?.counterparty ? [{ icon: <Copy color={colors.text} size={19} />, label: 'Copy address', onPress: copyCounterparty }] : []),
+          ...(resolvedActivity?.status === 'pending' ? [{ icon: <RefreshCw color={colors.text} size={19} />, label: isLookingUp ? 'Checking' : 'Refresh', onPress: refreshStatus }] : []),
+          ...(foundOnDifferentChain ? [{ icon: <SlidersHorizontal color={colors.text} size={19} />, label: 'Switch network', onPress: switchToActivityNetwork }] : []),
           ...(canDraftOutgoingAgain
             ? [
                 {
@@ -1673,12 +1790,13 @@ export function ActivityDetailScreen() {
                       source: outgoingDraftSource,
                     },
                   } as Href,
-                  icon: <ArrowUpRight color="#A5AEC0" size={19} />,
+                  icon: <ArrowUpRight color={colors.accentInk} size={19} />,
                   label: outgoingDraftLabel,
+                  tone: 'accent' as const,
                 },
               ]
             : []),
-          { icon: <ExternalLink color="#A5AEC0" size={19} />, label: 'Explorer', onPress: openExplorer },
+          { icon: <ExternalLink color={colors.text} size={19} />, label: 'Explorer', onPress: openExplorer },
         ]}
       />
 
@@ -1696,12 +1814,12 @@ export function ActivityDetailScreen() {
 
 function MiniBalance({ label, value }: { label: string; value: string }) {
   return (
-    <View style={styles.miniBalance}>
+    <AppSurface compact style={styles.miniBalance}>
       <AppText tone="muted" variant="caption">
         {label}
       </AppText>
       <AppText>{value}</AppText>
-    </View>
+    </AppSurface>
   );
 }
 
@@ -1724,7 +1842,7 @@ function SectionHeader({
       <AppText tone="muted" variant="caption">
         {actionLabel}
       </AppText>
-      {actionHref ? <ChevronRight color="#667085" size={14} /> : null}
+      {actionHref ? <ChevronRight color={colors.textSubtle} size={14} /> : null}
     </View>
   ) : null;
 
@@ -1750,9 +1868,9 @@ function SectionHeader({
 
 function EmptyState({ label }: { label: string }) {
   return (
-    <View style={styles.emptyState}>
+    <AppSurface style={styles.emptyState}>
       <AppText tone="muted">{label}</AppText>
-    </View>
+    </AppSurface>
   );
 }
 
@@ -1773,7 +1891,7 @@ function CompletionNotice({ label, subtitle }: { label: string; subtitle: string
   return (
     <View style={styles.completionNotice}>
       <View style={styles.noticeMark}>
-        <Check color="#C7FF3D" size={22} />
+        <Check color={colors.accent} size={22} />
       </View>
       <View style={styles.noticeCopy}>
         <AppText>{label}</AppText>
@@ -1888,10 +2006,7 @@ function formatActivityDate(timestamp: string) {
     return 'Yesterday';
   }
 
-  return activityDate.toLocaleDateString('en-US', {
-    day: 'numeric',
-    month: 'short',
-  });
+  return formatShortDate(activityDate);
 }
 
 function formatCheckedAt(timestamp: string) {
@@ -1901,24 +2016,10 @@ function formatCheckedAt(timestamp: string) {
     return 'Unknown';
   }
 
-  return date.toLocaleTimeString('en-US', {
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatShortTime(date);
 }
 
 const styles = StyleSheet.create({
-  activityFilterButton: {
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  activityFilterButtonActive: {
-    backgroundColor: 'rgba(199,255,61,0.08)',
-    borderColor: 'rgba(199,255,61,0.28)',
-  },
   activityFilterRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1926,24 +2027,29 @@ const styles = StyleSheet.create({
   },
   activityDetailIcon: {
     alignItems: 'center',
-    borderRadius: 14,
+    borderRadius: 10,
     height: 52,
     justifyContent: 'center',
     width: 52,
   },
   activityDetailIn: {
-    backgroundColor: 'rgba(199,255,61,0.08)',
+    backgroundColor: 'rgba(244, 217, 198, 0.55)',
   },
   activityDetailOut: {
-    backgroundColor: 'rgba(243,186,47,0.08)',
+    backgroundColor: 'rgba(226, 178, 67, 0.12)',
   },
   addressText: {
+    color: colors.text,
+    fontFamily: fonts.mono,
+    fontSize: 12,
+    lineHeight: 18,
     textAlign: 'center',
+    width: '100%',
   },
   amountPanel: {
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     gap: 4,
     padding: 18,
@@ -1955,8 +2061,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 0,
   },
   amountInputText: {
+    fontFamily: fonts.light,
     fontSize: 44,
-    fontWeight: '800',
+    fontWeight: '300',
     lineHeight: 52,
   },
   assetDetailCopy: {
@@ -1967,18 +2074,47 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 14,
-    paddingTop: 10,
-  },
-  assetPin: {
-    backgroundColor: 'rgba(199, 255, 61, 0.06)',
-    borderColor: 'rgba(199, 255, 61, 0.22)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(250, 248, 244, 0.82)',
+    borderColor: 'rgba(31, 27, 22, 0.08)',
+    borderRadius: 18,
     borderWidth: 1,
     padding: 14,
+  },
+  assetPin: {
+    backgroundColor: colors.text,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 24,
+    borderWidth: 1,
+    overflow: 'hidden',
+    padding: 16,
+  },
+  assetPinChange: {
+    color: colors.accent,
+    fontFamily: fonts.latinBold,
+    fontSize: 12,
+    fontWeight: '700',
+    lineHeight: 16,
   },
   assetPinCopy: {
     flex: 1,
     gap: 2,
+  },
+  assetPinFiat: {
+    color: colors.white,
+    fontFamily: fonts.latinBold,
+    fontSize: 15,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  assetPinMeta: {
+    color: 'rgba(250,248,244,0.66)',
+  },
+  assetPinTitle: {
+    color: colors.white,
+    fontFamily: fonts.latinBold,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 23,
   },
   assetPinTop: {
     alignItems: 'center',
@@ -1988,18 +2124,51 @@ const styles = StyleSheet.create({
   assetPinValue: {
     alignItems: 'flex-end',
   },
+  backupPrompt: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(226, 178, 67, 0.12)',
+    borderColor: 'rgba(226, 178, 67, 0.28)',
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 12,
+    padding: 14,
+  },
+  backupPromptCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  backupPromptIcon: {
+    alignItems: 'center',
+    backgroundColor: colors.accent,
+    borderRadius: 12,
+    height: 42,
+    justifyContent: 'center',
+    width: 42,
+  },
+  backupPromptPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.992 }],
+  },
+  backupPromptTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 16,
+    lineHeight: 21,
+  },
   assetOption: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 14,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
     padding: 12,
   },
   assetOptionActive: {
-    borderColor: 'rgba(199,255,61,0.32)',
+    backgroundColor: 'rgba(225, 244, 50, 0.14)',
+    borderColor: 'rgba(225, 244, 50, 0.38)',
   },
   assetOptionCopy: {
     flex: 1,
@@ -2018,11 +2187,7 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.035)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 14,
-    borderWidth: 1,
-    padding: 18,
+    paddingVertical: 18,
   },
   filterRow: {
     flexDirection: 'row',
@@ -2039,18 +2204,83 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  homeAddressBar: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(250, 248, 244, 0.72)',
+    borderColor: 'rgba(199, 106, 60, 0.2)',
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    minHeight: 54,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+  },
+  homeAddressBarDisabled: {
+    opacity: 0.64,
+  },
+  homeAddressBarPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.992 }],
+  },
+  homeAddressCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  homeAddressText: {
+    fontFamily: fonts.semibold,
+    fontSize: 15,
+    lineHeight: 20,
+  },
+  lifeAmount: {
+    color: colors.text,
+    fontFamily: fonts.latinBlack,
+    fontSize: 42,
+    fontWeight: '900',
+    lineHeight: 46,
+  },
+  lifeHero: {
+    gap: 18,
+    overflow: 'hidden',
+    padding: 16,
+  },
+  lifeHeroCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  lifeHeroTitle: {
+    fontFamily: fonts.semibold,
+    fontSize: 17,
+    lineHeight: 22,
+  },
+  lifeHeroToken: {
+    alignItems: 'center',
+    height: 58,
+    justifyContent: 'center',
+    width: 58,
+  },
+  lifeHeroTop: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  lifeHeroValue: {
+    gap: 3,
+  },
   infoCard: {
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(250, 248, 244, 0.84)',
+    borderColor: 'rgba(31, 27, 22, 0.08)',
+    borderRadius: 18,
     borderWidth: 1,
     gap: 12,
     padding: 14,
   },
   infoCardCompact: {
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(250, 248, 244, 0.84)',
+    borderColor: 'rgba(31, 27, 22, 0.08)',
+    borderRadius: 18,
     borderWidth: 1,
     gap: 10,
     padding: 14,
@@ -2065,15 +2295,18 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'right',
   },
+  inactiveChipLabel: {
+    color: colors.textMuted,
+  },
   inlineActionRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 8,
   },
   keyPanel: {
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     gap: 12,
     padding: 14,
@@ -2085,9 +2318,9 @@ const styles = StyleSheet.create({
   },
   lookupButton: {
     alignItems: 'center',
-    backgroundColor: 'rgba(199,255,61,0.08)',
-    borderColor: 'rgba(199,255,61,0.22)',
-    borderRadius: 12,
+    backgroundColor: 'rgba(244, 217, 198, 0.5)',
+    borderColor: 'rgba(199, 106, 60, 0.22)',
+    borderRadius: 10,
     borderWidth: 1,
     height: 52,
     justifyContent: 'center',
@@ -2102,29 +2335,61 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   lookupPanel: {
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     gap: 8,
     padding: 12,
   },
-  maxButton: {
-    alignSelf: 'flex-start',
-    borderColor: 'rgba(199,255,61,0.24)',
-    borderRadius: 10,
-    borderWidth: 1,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-  },
   miniBalance: {
-    backgroundColor: 'rgba(255,255,255,0.055)',
-    borderColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 12,
-    borderWidth: 1,
     flex: 1,
     gap: 2,
-    padding: 12,
+  },
+  missionPreview: {
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 12,
+    padding: 14,
+  },
+  missionPreviewCopy: {
+    flex: 1,
+    gap: 2,
+    minWidth: 0,
+  },
+  missionPreviewFill: {
+    backgroundColor: colors.accent,
+    borderRadius: 999,
+    height: '100%',
+  },
+  missionPreviewMeta: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  missionPreviewPressed: {
+    opacity: 0.86,
+    transform: [{ scale: 0.992 }],
+  },
+  missionPreviewTitle: {
+    fontFamily: fonts.latinBlack,
+    fontSize: 26,
+    fontWeight: '900',
+    lineHeight: 31,
+  },
+  missionPreviewTop: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+  },
+  missionPreviewTrack: {
+    backgroundColor: 'rgba(31, 27, 22, 0.09)',
+    borderRadius: 999,
+    height: 8,
+    overflow: 'hidden',
   },
   noticeCopy: {
     flex: 1,
@@ -2132,9 +2397,9 @@ const styles = StyleSheet.create({
   },
   noticeMark: {
     alignItems: 'center',
-    backgroundColor: 'rgba(199,255,61,0.08)',
-    borderColor: 'rgba(199,255,61,0.22)',
-    borderRadius: 14,
+    backgroundColor: 'rgba(244, 217, 198, 0.52)',
+    borderColor: 'rgba(199, 106, 60, 0.22)',
+    borderRadius: 10,
     borderWidth: 1,
     height: 52,
     justifyContent: 'center',
@@ -2142,60 +2407,71 @@ const styles = StyleSheet.create({
   },
   networkOption: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 14,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
     padding: 14,
   },
   networkOptionActive: {
-    borderColor: 'rgba(199,255,61,0.32)',
+    backgroundColor: 'rgba(225, 244, 50, 0.14)',
+    borderColor: 'rgba(225, 244, 50, 0.36)',
   },
   networkOptionCopy: {
     flex: 1,
     gap: 2,
   },
   networkOptionDot: {
-    backgroundColor: '#667085',
+    backgroundColor: colors.textSubtle,
     borderRadius: 5,
     height: 10,
     width: 10,
   },
   networkOptionDotActive: {
-    backgroundColor: '#C7FF3D',
+    backgroundColor: colors.accent,
   },
   networkOptionList: {
     gap: 8,
   },
   profileCard: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: colors.text,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 24,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    padding: 14,
+    padding: 16,
   },
   profileCopy: {
     flex: 1,
     gap: 2,
   },
+  profileMeta: {
+    color: 'rgba(250,248,244,0.66)',
+  },
   profileMark: {
     alignItems: 'center',
-    backgroundColor: 'rgba(199,255,61,0.08)',
-    borderRadius: 14,
-    height: 48,
+    backgroundColor: colors.accent,
+    borderRadius: 16,
+    height: 52,
     justifyContent: 'center',
-    width: 48,
+    width: 52,
+  },
+  profileTitle: {
+    color: colors.white,
+    fontFamily: fonts.latinBold,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 23,
   },
   qrWrap: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.045)',
-    borderColor: 'rgba(255,255,255,0.09)',
-    borderRadius: 16,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     padding: 22,
   },
@@ -2213,9 +2489,9 @@ const styles = StyleSheet.create({
   },
   recipientSuggestion: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.035)',
-    borderColor: 'rgba(255,255,255,0.08)',
-    borderRadius: 12,
+    backgroundColor: colors.backgroundElevated,
+    borderColor: colors.border,
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,
@@ -2227,7 +2503,7 @@ const styles = StyleSheet.create({
   },
   recipientSuggestionIcon: {
     alignItems: 'center',
-    backgroundColor: 'rgba(199,255,61,0.08)',
+    backgroundColor: 'rgba(244, 217, 198, 0.5)',
     borderRadius: 10,
     height: 32,
     justifyContent: 'center',
@@ -2271,21 +2547,31 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  securityMeta: {
+    color: 'rgba(250,248,244,0.66)',
+  },
   securityStatus: {
     alignItems: 'center',
-    backgroundColor: 'rgba(199,255,61,0.06)',
-    borderColor: 'rgba(199,255,61,0.18)',
-    borderRadius: 16,
+    backgroundColor: colors.text,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderRadius: 24,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 12,
-    padding: 14,
+    padding: 16,
+  },
+  securityTitle: {
+    color: colors.white,
+    fontFamily: fonts.latinBold,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 23,
   },
   warningPanel: {
     alignItems: 'center',
-    backgroundColor: 'rgba(243,186,47,0.06)',
-    borderColor: 'rgba(243,186,47,0.2)',
-    borderRadius: 16,
+    backgroundColor: 'rgba(226, 178, 67, 0.11)',
+    borderColor: 'rgba(226, 178, 67, 0.24)',
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: 'row',
     gap: 10,

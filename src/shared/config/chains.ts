@@ -1,52 +1,67 @@
-export type SupportedChainId = 56 | 97;
+export type SupportedChainId = 101 | 103;
+export type SolanaCluster = 'mainnet-beta' | 'devnet';
+export type PrivySolanaChain = 'solana:mainnet' | 'solana:devnet';
 
 export type ChainConfig = {
   id: SupportedChainId;
   name: string;
   shortName: string;
+  cluster: SolanaCluster;
+  privyChain: PrivySolanaChain;
   nativeCurrency: {
     name: string;
-    symbol: 'BNB' | 'tBNB';
-    decimals: 18;
+    symbol: 'SOL';
+    decimals: 9;
   };
   explorerBaseUrl: string;
-  explorerApiBaseUrl: string;
   faucetUrl?: string;
   rpcUrl: string;
 };
 
-export const BSC_MAINNET: ChainConfig = {
-  id: 56,
-  name: 'BNB Smart Chain',
-  shortName: 'BSC',
+export const SOLANA_MAINNET: ChainConfig = {
+  id: 101,
+  name: 'Solana',
+  shortName: 'Solana',
+  cluster: 'mainnet-beta',
+  privyChain: 'solana:mainnet',
   nativeCurrency: {
-    name: 'BNB',
-    symbol: 'BNB',
-    decimals: 18,
+    name: 'Solana',
+    symbol: 'SOL',
+    decimals: 9,
   },
-  explorerBaseUrl: 'https://bscscan.com',
-  explorerApiBaseUrl: 'https://api.etherscan.io/v2/api',
-  rpcUrl: process.env.EXPO_PUBLIC_BSC_RPC_URL ?? 'https://bsc-dataseed.binance.org',
+  explorerBaseUrl: 'https://explorer.solana.com',
+  rpcUrl: process.env.EXPO_PUBLIC_SOLANA_RPC_URL ?? 'https://api.mainnet-beta.solana.com',
 };
 
-export const BSC_TESTNET: ChainConfig = {
-  id: 97,
-  name: 'BNB Smart Chain Testnet',
-  shortName: 'BSC Testnet',
+export const SOLANA_DEVNET: ChainConfig = {
+  id: 103,
+  name: 'Solana Devnet',
+  shortName: 'Devnet',
+  cluster: 'devnet',
+  privyChain: 'solana:devnet',
   nativeCurrency: {
-    name: 'Test BNB',
-    symbol: 'tBNB',
-    decimals: 18,
+    name: 'Devnet SOL',
+    symbol: 'SOL',
+    decimals: 9,
   },
-  explorerBaseUrl: 'https://testnet.bscscan.com',
-  explorerApiBaseUrl: 'https://api.etherscan.io/v2/api',
-  faucetUrl: 'https://www.bnbchain.org/en/testnet-faucet',
-  rpcUrl: process.env.EXPO_PUBLIC_BSC_TESTNET_RPC_URL ?? 'https://data-seed-prebsc-1-s1.binance.org:8545',
+  explorerBaseUrl: 'https://explorer.solana.com',
+  faucetUrl: 'https://faucet.solana.com',
+  rpcUrl: process.env.EXPO_PUBLIC_SOLANA_DEVNET_RPC_URL ?? 'https://api.devnet.solana.com',
 };
 
 export const supportedChains = {
-  56: BSC_MAINNET,
-  97: BSC_TESTNET,
+  101: SOLANA_MAINNET,
+  103: SOLANA_DEVNET,
 } as const;
 
-export const defaultChain = BSC_TESTNET;
+export const defaultChain = SOLANA_DEVNET;
+
+export function getSolanaExplorerUrl(chain: ChainConfig, path: 'address' | 'tx' | 'token', value: string) {
+  const url = new URL(`${chain.explorerBaseUrl}/${path}/${value}`);
+
+  if (chain.cluster !== 'mainnet-beta') {
+    url.searchParams.set('cluster', chain.cluster);
+  }
+
+  return url.toString();
+}

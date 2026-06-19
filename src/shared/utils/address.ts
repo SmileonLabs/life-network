@@ -1,14 +1,15 @@
-const zeroAddress = '0x0000000000000000000000000000000000000000';
-const addressPattern = /0x[a-fA-F0-9]{40}/;
-const addressOrHashPattern = /0x[a-fA-F0-9]{40,64}/g;
-const transactionHashPattern = /0x[a-fA-F0-9]{64}/;
+import bs58 from 'bs58';
+import { PublicKey } from '@solana/web3.js';
+
+const systemProgramAddress = '11111111111111111111111111111111';
+const base58CandidatePattern = /[1-9A-HJ-NP-Za-km-z]{32,96}/g;
 
 export function isAddress(address: string) {
-  return /^0x[a-fA-F0-9]{40}$/.test(address.trim());
+  return toSolanaAddress(address) !== null;
 }
 
 export function isTransactionHash(hash: string) {
-  return /^0x[a-fA-F0-9]{64}$/.test(hash.trim());
+  return toSolanaSignature(hash) !== null;
 }
 
 export function extractAddressFromText(value: string) {
@@ -18,68 +19,90 @@ export function extractAddressFromText(value: string) {
     return normalizeAddress(text);
   }
 
-  const pathMatch = text.match(new RegExp(`(?:address|token)/(${addressPattern.source})`, 'i'));
+  const pathMatch = text.match(/(?:address|account|token)\/([1-9A-HJ-NP-Za-km-z]{32,44})/i);
 
   if (pathMatch?.[1] && isAddress(pathMatch[1])) {
     return normalizeAddress(pathMatch[1]);
   }
 
-  const ethereumUriMatch = text.match(new RegExp(`^ethereum:(${addressPattern.source})(?:[@/?].*)?$`, 'i'));
+  const solanaUriMatch = text.match(/^solana:([1-9A-HJ-NP-Za-km-z]{32,44})(?:[@/?].*)?$/i);
 
-  if (ethereumUriMatch?.[1] && isAddress(ethereumUriMatch[1])) {
-    return normalizeAddress(ethereumUriMatch[1]);
+  if (solanaUriMatch?.[1] && isAddress(solanaUriMatch[1])) {
+    return normalizeAddress(solanaUriMatch[1]);
   }
 
-  const matches = text.match(addressOrHashPattern) ?? [];
-  const address = matches.find((match) => match.length === 42);
-  return address && isAddress(address) ? normalizeAddress(address) : null;
+  const matches = text.match(base58CandidatePattern) ?? [];
+  const address = matches.find((match) => isAddress(match));
+  return address ? normalizeAddress(address) : null;
 }
 
 export function extractTransactionHashFromText(value: string) {
   const text = value.trim();
 
   if (isTransactionHash(text)) {
-    return text.toLowerCase();
+    return text;
   }
 
-  const pathMatch = text.match(new RegExp(`tx/(${transactionHashPattern.source})`, 'i'));
+  const pathMatch = text.match(/(?:tx|signature)\/([1-9A-HJ-NP-Za-km-z]{64,96})/i);
 
   if (pathMatch?.[1] && isTransactionHash(pathMatch[1])) {
-    return pathMatch[1].toLowerCase();
+    return pathMatch[1];
   }
 
-  const match = text.match(transactionHashPattern)?.[0];
-  return match && isTransactionHash(match) ? match.toLowerCase() : null;
+  const match = text.match(base58CandidatePattern)?.find((candidate) => isTransactionHash(candidate));
+  return match ?? null;
 }
 
 export function normalizeAddress(address: string) {
-  const trimmed = address.trim();
-  return isAddress(trimmed) ? `0x${trimmed.slice(2).toLowerCase()}` : trimmed;
+  return toSolanaAddress(address) ?? address.trim();
 }
 
 export function isSameAddress(left: string, right: string) {
-  return isAddress(left) && isAddress(right) && normalizeAddress(left) === normalizeAddress(right);
+  return normalizeAddress(left) === normalizeAddress(right) && isAddress(left) && isAddress(right);
 }
 
 export function isZeroAddress(address: string) {
-  return normalizeAddress(address) === zeroAddress;
+  return normalizeAddress(address) === systemProgramAddress;
 }
 
 export function makeDemoAddress(seed: string) {
-  return `0x${hashToHex(seed || 'life-wallet', 40)}`;
+  return new PublicKey(hashToBytes(seed || 'life-wallet', 32)).toBase58();
 }
 
 export function makeDemoHash(seed: string) {
-  return `0x${hashToHex(`${seed}:${Date.now()}`, 64)}`;
+  return bs58.encode(hashToBytes(`${seed}:${Date.now()}`, 64));
 }
 
-function hashToHex(input: string, length: number) {
+export function toSolanaAddress(address: string) {
+  const trimmed = address.trim();
+
+  try {
+    const publicKey = new PublicKey(trimmed);
+    return publicKey.toBase58() === trimmed ? trimmed : publicKey.toBase58();
+  } catch {
+    return null;
+  }
+}
+
+export function toSolanaSignature(signature: string) {
+  const trimmed = signature.trim();
+
+  try {
+    const decoded = bs58.decode(trimmed);
+    return decoded.length === 64 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+function hashToBytes(input: string, length: number) {
   let stateA = 0x811c9dc5;
   let stateB = 0x01000193;
-  let output = '';
+  const output = new Uint8Array(length);
   let cursor = input;
+  let offset = 0;
 
-  while (output.length < length) {
+  while (offset < length) {
     for (let index = 0; index < cursor.length; index += 1) {
       stateA ^= cursor.charCodeAt(index);
       stateA = Math.imul(stateA, 0x01000193);
@@ -87,11 +110,17 @@ function hashToHex(input: string, length: number) {
       stateB = Math.imul(stateB, 0x85ebca6b);
     }
 
-    output += `${(stateA >>> 0).toString(16).padStart(8, '0')}${(stateB >>> 0)
-      .toString(16)
-      .padStart(8, '0')}`;
-    cursor = `${cursor}:${output.length}`;
+    const words = [stateA >>> 0, stateB >>> 0];
+
+    for (const word of words) {
+      for (let shift = 0; shift < 32 && offset < length; shift += 8) {
+        output[offset] = (word >>> shift) & 0xff;
+        offset += 1;
+      }
+    }
+
+    cursor = `${cursor}:${offset}`;
   }
 
-  return output.slice(0, length);
+  return output;
 }

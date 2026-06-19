@@ -42,7 +42,7 @@ export function LifeBalanceHero() {
           caption: 'Core asset',
         },
         {
-          label: nativeAsset?.symbol ?? 'BNB',
+          label: nativeAsset?.symbol ?? 'SOL',
           value: nativeAsset ? formatTokenAmount(nativeAsset.balance, 4) : '0',
           caption: 'Gas ready',
         },

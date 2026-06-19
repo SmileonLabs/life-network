@@ -14,9 +14,9 @@ export function AssetRow({ asset }: AssetRowProps) {
         pathname: '/tokens/[address]',
         params: { address: asset.contractAddress ?? 'native' },
       }}
-      leading={<TokenLogo symbol={asset.symbol} accent={asset.accent} size={42} />}
+      leading={<TokenLogo symbol={asset.symbol} accent={asset.accent} iconUrl={asset.iconUrl} mint={asset.contractAddress} size={42} />}
       meta={`${formatCurrency(asset.balance * asset.priceUsd)} · ${formatPercent(asset.change24h)}`}
-      subtitle={`${asset.symbol} · ${asset.type === 'native' ? 'Native' : 'BEP-20'}`}
+      subtitle={`${asset.symbol} · ${asset.type === 'native' ? 'Native' : 'SPL'}`}
       title={asset.name}
       value={formatTokenAmount(asset.balance)}
     />

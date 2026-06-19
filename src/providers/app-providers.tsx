@@ -27,5 +27,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
 function WalletSessionBoundary({ children }: { children: ReactNode }) {
   const { user } = useAuthSession();
 
-  return <WalletProvider key={user?.id ?? 'signed-out'}>{children}</WalletProvider>;
+  if (!user) {
+    return <>{children}</>;
+  }
+
+  return <WalletProvider key={user.id}>{children}</WalletProvider>;
 }

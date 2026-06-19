@@ -1,35 +1,35 @@
-import { BSC_MAINNET, BSC_TESTNET } from '@/shared/config/chains';
+import { SOLANA_DEVNET, SOLANA_MAINNET } from '@/shared/config/chains';
 
 export const bscMainnetViem = {
-  id: BSC_MAINNET.id,
-  name: BSC_MAINNET.name,
-  nativeCurrency: BSC_MAINNET.nativeCurrency,
+  id: SOLANA_MAINNET.id,
+  name: SOLANA_MAINNET.name,
+  nativeCurrency: SOLANA_MAINNET.nativeCurrency,
   rpcUrls: {
     default: {
-      http: [BSC_MAINNET.rpcUrl],
+      http: [SOLANA_MAINNET.rpcUrl],
     },
   },
   blockExplorers: {
     default: {
-      name: 'BscScan',
-      url: BSC_MAINNET.explorerBaseUrl,
+      name: 'Solana Explorer',
+      url: SOLANA_MAINNET.explorerBaseUrl,
     },
   },
 };
 
 export const bscTestnetViem = {
-  id: BSC_TESTNET.id,
-  name: BSC_TESTNET.name,
-  nativeCurrency: BSC_TESTNET.nativeCurrency,
+  id: SOLANA_DEVNET.id,
+  name: SOLANA_DEVNET.name,
+  nativeCurrency: SOLANA_DEVNET.nativeCurrency,
   rpcUrls: {
     default: {
-      http: [BSC_TESTNET.rpcUrl],
+      http: [SOLANA_DEVNET.rpcUrl],
     },
   },
   blockExplorers: {
     default: {
-      name: 'BscScan Testnet',
-      url: BSC_TESTNET.explorerBaseUrl,
+      name: 'Solana Explorer',
+      url: SOLANA_DEVNET.explorerBaseUrl,
     },
   },
   testnet: true,

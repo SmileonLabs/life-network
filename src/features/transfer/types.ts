@@ -12,14 +12,14 @@ export type TransferValidation = {
   estimatedGasBnb: number;
 };
 
-export const nativeTransferGasFallbackBnb = 0.00021;
-export const bep20TransferGasFallbackBnb = 0.0028;
-export const gasSafetyMultiplier = 1.15;
+export const nativeTransferGasFallbackBnb = 0.000005;
+export const splTransferGasFallbackSol = 0.00001;
+export const networkFeeSafetyMultiplier = 1.25;
 
 export function getGasReserveBnb(fee: number | null | undefined) {
   if (!Number.isFinite(fee) || !fee || fee <= 0) {
     return 0;
   }
 
-  return fee * gasSafetyMultiplier;
+  return fee * networkFeeSafetyMultiplier;
 }

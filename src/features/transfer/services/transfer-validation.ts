@@ -1,11 +1,11 @@
-import { isAddress, isSameAddress, isZeroAddress } from '@/shared/utils/address';
 import type { AssetBalance } from '@/features/tokens/types';
 import {
-  bep20TransferGasFallbackBnb,
   getGasReserveBnb,
   nativeTransferGasFallbackBnb,
+  splTransferGasFallbackSol,
   type TransferValidation,
 } from '@/features/transfer/types';
+import { isAddress, isSameAddress, isZeroAddress } from '@/shared/utils/address';
 
 type ValidateTransferOptions = {
   gasReserveBnb?: number | null;
@@ -25,33 +25,33 @@ export function validateTransfer(
   const hasValidAmountFormat = isDecimalAmount(normalizedAmount);
   const normalizedRecipient = recipient.trim();
   const hasValidRecipient = isAddress(normalizedRecipient);
-  const fallbackGasBnb = getGasReserveBnb(asset?.type === 'native' ? nativeTransferGasFallbackBnb : bep20TransferGasFallbackBnb);
+  const fallbackFeeSol = getGasReserveBnb(asset?.type === 'native' ? nativeTransferGasFallbackBnb : splTransferGasFallbackSol);
   const estimatedGasBnb =
     typeof options.gasReserveBnb === 'number' && Number.isFinite(options.gasReserveBnb) && options.gasReserveBnb > 0
       ? options.gasReserveBnb
-      : fallbackGasBnb;
+      : fallbackFeeSol;
 
   if (!asset) {
     errors.push('Select an asset to send.');
   }
 
-  if (asset?.type === 'bep20' && !asset.contractAddress) {
-    errors.push('Token contract is missing.');
+  if (asset?.type === 'spl' && !asset.contractAddress) {
+    errors.push('Token address is missing.');
   }
 
   if (!hasValidRecipient) {
-    errors.push('Enter a valid BSC address.');
+    errors.push('Enter a valid Solana address.');
   } else {
     if (isZeroAddress(normalizedRecipient)) {
-      errors.push('Do not send assets to the zero address.');
+      errors.push('Do not send assets to the system program.');
     }
 
     if (options.senderAddress && isSameAddress(normalizedRecipient, options.senderAddress)) {
       errors.push('Recipient is your active wallet.');
     }
 
-    if (asset?.type === 'bep20' && asset.contractAddress && isSameAddress(normalizedRecipient, asset.contractAddress)) {
-      errors.push(`Do not send ${asset.symbol} to its token contract.`);
+    if (asset?.type === 'spl' && asset.contractAddress && isSameAddress(normalizedRecipient, asset.contractAddress)) {
+      errors.push(`Do not send ${asset.symbol} to its token address.`);
     }
   }
 
@@ -69,12 +69,12 @@ export function validateTransfer(
     errors.push(`Insufficient ${asset.symbol} balance.`);
   }
 
-  if (asset?.type === 'bep20' && isAmountGreaterThanBalance(String(estimatedGasBnb), nativeBalance, 18)) {
-    errors.push('Insufficient BNB for gas.');
+  if (asset?.type === 'spl' && isAmountGreaterThanBalance(String(estimatedGasBnb), nativeBalance, 9)) {
+    errors.push('Insufficient SOL for network fee.');
   }
 
   if (asset?.type === 'native' && isAmountWithGasGreaterThanBalance(normalizedAmount, estimatedGasBnb, nativeBalance)) {
-    errors.push('Leave enough BNB for network gas.');
+    errors.push('Leave enough SOL for network fee.');
   }
 
   return {
@@ -105,9 +105,9 @@ export function isAmountGreaterThanBalance(amount: string, balance: number, deci
 }
 
 export function isAmountWithGasGreaterThanBalance(amount: string, gasBnb: number, nativeBalance: number) {
-  const amountUnits = decimalToUnits(amount, 18);
-  const gasUnits = numberToUnits(gasBnb, 18);
-  const balanceUnits = numberToUnits(nativeBalance, 18);
+  const amountUnits = decimalToUnits(amount, 9);
+  const gasUnits = numberToUnits(gasBnb, 9);
+  const balanceUnits = numberToUnits(nativeBalance, 9);
 
   if (amountUnits === null || gasUnits === null || balanceUnits === null) {
     return Number(amount) + gasBnb > nativeBalance;

@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { ArrowRight } from 'lucide-react-native';
 
-import { colors, radius, spacing } from '@/shared/theme/tokens';
+import { colors, fonts, radius, spacing } from '@/shared/theme/tokens';
 import { AppText } from '@/shared/ui/app-text';
 
 type ButtonProps = Omit<PressableProps, 'style'> & {
@@ -67,7 +67,7 @@ const styles = StyleSheet.create({
   },
   primary: {
     backgroundColor: colors.lime,
-    borderColor: 'rgba(184, 255, 92, 0.72)',
+    borderColor: 'rgba(170, 183, 255, 0.72)',
   },
   secondary: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -82,7 +82,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 107, 107, 0.72)',
   },
   label: {
-    fontWeight: '800',
+    fontFamily: fonts.bold,
+    fontWeight: '700',
     textAlign: 'center',
   },
   labelDark: {

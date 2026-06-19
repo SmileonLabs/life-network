@@ -1,10 +1,13 @@
+import { colors } from '@/shared/theme/tokens';
+
 export type MockAsset = {
   address: string;
   accent: string;
   balance: string;
   change: string;
   fiatValue: string;
-  kind: 'Core' | 'Gas' | 'BEP-20';
+  iconUrl?: string;
+  kind: 'Core' | 'Gas' | 'SPL';
   name: string;
   price: string;
   symbol: string;
@@ -30,7 +33,7 @@ export type MockWallet = {
 export const mockAssets: MockAsset[] = [
   {
     address: 'life',
-    accent: '#C7FF3D',
+    accent: colors.lime,
     balance: '18,420.50',
     change: '+4.8%',
     fiatValue: '$9,118.24',
@@ -41,13 +44,13 @@ export const mockAssets: MockAsset[] = [
   },
   {
     address: 'native',
-    accent: '#F3BA2F',
+    accent: colors.amber,
     balance: '1.284',
     change: '+0.6%',
     fiatValue: '$815.37',
     kind: 'Gas',
-    name: 'BNB',
+    name: 'SOL',
     price: '$635.02',
-    symbol: 'BNB',
+    symbol: 'SOL',
   },
 ];

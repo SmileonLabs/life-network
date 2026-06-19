@@ -47,8 +47,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   activeRow: {
-    borderColor: 'rgba(184, 255, 92, 0.42)',
-    backgroundColor: 'rgba(184, 255, 92, 0.085)',
+    borderColor: 'rgba(170, 183, 255, 0.42)',
+    backgroundColor: 'rgba(170, 183, 255, 0.085)',
   },
   mark: {
     width: 38,

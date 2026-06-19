@@ -13,11 +13,11 @@ export function TokenDetailCard({ asset }: { asset: AssetBalance }) {
   return (
     <View style={styles.wrap}>
       <View style={styles.header}>
-        <TokenLogo symbol={asset.symbol} accent={asset.accent} size={62} />
+        <TokenLogo symbol={asset.symbol} accent={asset.accent} iconUrl={asset.iconUrl} mint={asset.contractAddress} size={62} />
         <View style={styles.headerCopy}>
           <Badge label={asset.discoveredBy === 'core' ? 'Core asset' : 'Auto discovered'} tone="cyan" />
           <AppText variant="title">{asset.name}</AppText>
-          <AppText tone="muted">{asset.type === 'native' ? 'Native BNB asset' : shortAddress(asset.contractAddress ?? '')}</AppText>
+          <AppText tone="muted">{asset.type === 'native' ? 'Native SOL asset' : shortAddress(asset.contractAddress ?? '')}</AppText>
         </View>
       </View>
 
@@ -37,7 +37,7 @@ export function TokenDetailCard({ asset }: { asset: AssetBalance }) {
           },
         ]}
         amount={`${formatTokenAmount(asset.balance, 6)} ${asset.symbol}`}
-        caption={asset.type === 'native' ? 'Native gas asset' : 'BEP-20 token'}
+        caption={asset.type === 'native' ? 'Native gas asset' : 'SPL token'}
         label="Token balance"
         metrics={[
           { label: '24h', value: formatPercent(asset.change24h) },
@@ -46,10 +46,10 @@ export function TokenDetailCard({ asset }: { asset: AssetBalance }) {
       />
 
       <View style={styles.metaList}>
-        <MetaRow label="Standard" value={asset.type === 'native' ? 'Native' : 'BEP-20'} />
+        <MetaRow label="Standard" value={asset.type === 'native' ? 'Native' : 'SPL'} />
         <MetaRow label="Decimals" value={`${asset.decimals}`} />
         <MetaRow label="Verified" value={asset.verified ? 'Yes' : 'Review'} />
-        <MetaRow label="Contract" value={asset.type === 'native' ? 'Native asset' : shortAddress(asset.contractAddress ?? '', 10, 8)} />
+        <MetaRow label="Token address" value={asset.type === 'native' ? 'Native asset' : shortAddress(asset.contractAddress ?? '', 10, 8)} />
       </View>
     </View>
   );

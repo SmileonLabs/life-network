@@ -64,8 +64,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(184, 255, 92, 0.34)',
-    backgroundColor: 'rgba(184, 255, 92, 0.12)',
+    borderColor: 'rgba(170, 183, 255, 0.34)',
+    backgroundColor: 'rgba(170, 183, 255, 0.12)',
   },
   copy: {
     minWidth: 0,

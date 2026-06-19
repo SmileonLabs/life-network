@@ -98,11 +98,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
   },
   primaryButton: {
-    borderColor: 'rgba(184, 255, 92, 0.38)',
-    backgroundColor: 'rgba(184, 255, 92, 0.11)',
+    borderColor: 'rgba(170, 183, 255, 0.38)',
+    backgroundColor: 'rgba(170, 183, 255, 0.11)',
   },
   cyanButton: {
-    borderColor: 'rgba(68, 217, 255, 0.28)',
+    borderColor: 'rgba(194, 216, 254, 0.28)',
   },
   amberButton: {
     borderColor: 'rgba(255, 204, 102, 0.28)',
@@ -116,10 +116,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   primaryIcon: {
-    backgroundColor: 'rgba(184, 255, 92, 0.18)',
+    backgroundColor: 'rgba(170, 183, 255, 0.18)',
   },
   cyanIcon: {
-    backgroundColor: 'rgba(68, 217, 255, 0.12)',
+    backgroundColor: 'rgba(194, 216, 254, 0.12)',
   },
   amberIcon: {
     backgroundColor: 'rgba(255, 204, 102, 0.12)',

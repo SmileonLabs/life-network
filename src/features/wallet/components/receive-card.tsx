@@ -44,7 +44,7 @@ export function ReceiveCard() {
           <Badge label={chain.shortName} tone="lime" />
         </View>
         <AppText variant="subtitle">Receive assets</AppText>
-        <AppText tone="muted">Use this address for BNB Smart Chain assets only.</AppText>
+        <AppText tone="muted">Use this address for Solana assets only.</AppText>
       </View>
 
       <GlassCard intensity="strong" style={styles.qrCard}>
@@ -68,7 +68,7 @@ export function ReceiveCard() {
       <View style={styles.warningBox}>
         <ShieldAlert color={colors.warning} size={18} />
         <AppText tone="warning" style={styles.warningText}>
-          Only send BNB Smart Chain assets to this wallet.
+          Only send Solana assets to this wallet.
         </AppText>
       </View>
 

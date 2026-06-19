@@ -30,12 +30,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
   },
   cyan: {
-    backgroundColor: 'rgba(68, 217, 255, 0.1)',
-    borderColor: 'rgba(68, 217, 255, 0.34)',
+    backgroundColor: 'rgba(194, 216, 254, 0.1)',
+    borderColor: 'rgba(194, 216, 254, 0.34)',
   },
   lime: {
-    backgroundColor: 'rgba(184, 255, 92, 0.12)',
-    borderColor: 'rgba(184, 255, 92, 0.36)',
+    backgroundColor: 'rgba(170, 183, 255, 0.12)',
+    borderColor: 'rgba(170, 183, 255, 0.36)',
   },
   violet: {
     backgroundColor: 'rgba(155, 124, 255, 0.13)',

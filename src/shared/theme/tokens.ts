@@ -1,31 +1,48 @@
 import { Platform, type TextStyle, type ViewStyle } from 'react-native';
 
 export const colors = {
-  background: '#030612',
-  backgroundElevated: '#08111f',
-  backgroundSoft: '#101a2b',
-  glass: 'rgba(12, 21, 38, 0.72)',
-  glassStrong: 'rgba(18, 31, 52, 0.88)',
-  border: 'rgba(255, 255, 255, 0.12)',
-  borderStrong: 'rgba(147, 197, 253, 0.26)',
-  text: '#f8fbff',
-  textMuted: '#99a7bd',
-  textSubtle: '#6f8099',
-  cyan: '#44d9ff',
-  lime: '#b8ff5c',
-  violet: '#9b7cff',
-  rose: '#ff6b9a',
-  amber: '#ffcc66',
-  success: '#6ee7a7',
-  danger: '#ff6b6b',
-  warning: '#ffd166',
+  background: '#FAF8F4',
+  backgroundElevated: '#F5F1EA',
+  backgroundSoft: '#EFEAE0',
+  glass: 'rgba(250, 248, 244, 0.86)',
+  glassStrong: 'rgba(255, 255, 255, 0.94)',
+  border: 'rgba(31, 27, 22, 0.1)',
+  borderStrong: 'rgba(31, 27, 22, 0.22)',
+  text: '#1F1B16',
+  textMuted: '#4F4940',
+  textSubtle: '#79736B',
+  cyan: '#00D68F',
+  accent: '#E1F432',
+  accentInk: '#07111F',
+  lime: '#C76A3C',
+  violet: '#75584A',
+  rose: '#BA1A1A',
+  amber: '#E2B243',
+  success: '#00A544',
+  danger: '#BA1A1A',
+  warning: '#C76A3C',
   black: '#000000',
   white: '#ffffff',
 } as const;
 
 export const gradients = {
-  app: ['#02030a', '#051326', '#08111f'],
-  life: ['#b8ff5c', '#44d9ff'],
+  app: ['#FAF8F4', '#F5F1EA', '#EFEAE0'],
+  life: ['#F4D9C6', '#C76A3C'],
+} as const;
+
+export const fonts = {
+  display: 'PretendardVariable',
+  light: 'PretendardVariable',
+  regular: 'PretendardVariable',
+  semibold: 'PretendardVariable',
+  bold: 'PretendardVariable',
+  black: 'PretendardVariable',
+  latinDisplay: 'Lato-Light',
+  latinRegular: 'Lato-Regular',
+  latinSemibold: 'Lato-Semibold',
+  latinBold: 'Lato-Bold',
+  latinBlack: 'Lato-Black',
+  mono: Platform.select({ default: 'monospace', ios: 'Menlo' }) ?? 'monospace',
 } as const;
 
 export const spacing = {
@@ -48,30 +65,35 @@ export const radius = {
 
 export const typography = {
   hero: {
+    fontFamily: fonts.display,
     fontSize: 40,
-    lineHeight: 46,
-    fontWeight: '800',
+    lineHeight: 48,
+    fontWeight: '400',
     letterSpacing: 0,
   } satisfies TextStyle,
   title: {
+    fontFamily: fonts.display,
     fontSize: 28,
     lineHeight: 34,
-    fontWeight: '800',
+    fontWeight: '400',
     letterSpacing: 0,
   } satisfies TextStyle,
   subtitle: {
+    fontFamily: fonts.bold,
     fontSize: 20,
     lineHeight: 26,
     fontWeight: '700',
     letterSpacing: 0,
   } satisfies TextStyle,
   body: {
+    fontFamily: fonts.regular,
     fontSize: 15,
-    lineHeight: 22,
-    fontWeight: '500',
+    lineHeight: 23,
+    fontWeight: '400',
     letterSpacing: 0,
   } satisfies TextStyle,
   caption: {
+    fontFamily: fonts.semibold,
     fontSize: 12,
     lineHeight: 17,
     fontWeight: '600',
@@ -82,10 +104,10 @@ export const typography = {
 export const shadows = {
   glowCyan: Platform.select({
     web: {
-      boxShadow: '0 0 48px rgba(68, 217, 255, 0.18)',
+      boxShadow: '0 0 48px rgba(199, 106, 60, 0.12)',
     },
     default: {
-      shadowColor: colors.cyan,
+      shadowColor: colors.lime,
       shadowOffset: { width: 0, height: 18 },
       shadowOpacity: 0.18,
       shadowRadius: 32,
@@ -94,7 +116,7 @@ export const shadows = {
   }) as ViewStyle,
   card: Platform.select({
     web: {
-      boxShadow: '0 20px 80px rgba(0, 0, 0, 0.32)',
+      boxShadow: '0 18px 48px rgba(31, 27, 22, 0.12)',
     },
     default: {
       shadowColor: colors.black,
@@ -112,4 +134,3 @@ export const glassEffect = Platform.select({
   },
   default: {},
 }) as ViewStyle;
-

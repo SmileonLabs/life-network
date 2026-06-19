@@ -52,7 +52,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(184, 255, 92, 0.12)',
+    backgroundColor: 'rgba(170, 183, 255, 0.12)',
   },
   copy: {
     flex: 1,

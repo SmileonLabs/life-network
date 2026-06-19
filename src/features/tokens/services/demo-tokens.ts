@@ -1,44 +1,43 @@
-import { colors } from '@/shared/theme/tokens';
-import { env } from '@/shared/config/env';
-import type { SupportedChainId } from '@/shared/config/chains';
 import type { AssetBalance } from '@/features/tokens/types';
+import type { SupportedChainId } from '@/shared/config/chains';
+import { env } from '@/shared/config/env';
+import { colors } from '@/shared/theme/tokens';
+import { makeDemoAddress } from '@/shared/utils/address';
 
-const lifeAddress = env.lifeTokenAddress || '0x1111111111111111111111111111111111111111';
+const lifeMint = env.lifeTokenMint || makeDemoAddress('life-token-mint');
 
 export function getDemoAssets(chainId: SupportedChainId): AssetBalance[] {
-  const bnbSymbol = chainId === 56 ? 'BNB' : 'tBNB';
+  const isMainnet = chainId === 101;
 
-  const coreAssets: AssetBalance[] = [
+  return [
     {
       id: `${chainId}:native`,
+      accent: colors.lime,
+      balance: isMainnet ? 1.284 : 0,
       chainId,
-      type: 'native',
-      name: chainId === 56 ? 'BNB' : 'Test BNB',
-      symbol: bnbSymbol,
-      decimals: 18,
-      balance: chainId === 56 ? 2.8421 : 0,
-      priceUsd: chainId === 56 ? 642.18 : 0,
-      change24h: 1.62,
-      accent: colors.amber,
-      verified: true,
+      change24h: 2.12,
+      decimals: 9,
       discoveredBy: 'core',
+      name: isMainnet ? 'Solana' : 'Devnet SOL',
+      priceUsd: isMainnet ? 148.24 : 0,
+      symbol: 'SOL',
+      type: 'native',
+      verified: true,
     },
     {
       id: `${chainId}:life`,
+      accent: colors.success,
+      balance: isMainnet ? 18420.75 : 0,
       chainId,
-      type: 'bep20',
-      name: 'LIFE Token',
-      symbol: 'LIFE',
-      decimals: 18,
-      contractAddress: lifeAddress,
-      balance: chainId === 56 ? 18420.75 : 0,
-      priceUsd: 0.048,
       change24h: 8.34,
-      accent: colors.lime,
-      verified: true,
+      contractAddress: lifeMint,
+      decimals: 9,
       discoveredBy: 'core',
+      name: 'LIFE Token',
+      priceUsd: 0.048,
+      symbol: 'LIFE',
+      type: 'spl',
+      verified: Boolean(env.lifeTokenMint),
     },
   ];
-
-  return coreAssets;
 }

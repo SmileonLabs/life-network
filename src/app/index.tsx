@@ -1,5 +1,5 @@
-import { HomeScreen as HomeMockScreen } from '@/features/mock-wallet/post-login-screens';
+import { HomeScreen } from '@/features/home/components/home-screen';
 
-export default function HomeScreen() {
-  return <HomeMockScreen />;
+export default function HomeRoute() {
+  return <HomeScreen />;
 }

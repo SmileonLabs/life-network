@@ -2,24 +2,29 @@ import { type ReactNode, useCallback, useMemo } from 'react';
 import { type Href, useGlobalSearchParams, useRouter } from 'expo-router';
 import {
   PrivyProvider as ReactPrivyProvider,
-  useCreateWallet,
   useLoginWithOAuth,
   usePrivy,
-  useWallets,
-  type ConnectedWallet,
-  type EIP1193Provider,
   type User,
 } from '@privy-io/react-auth';
+import {
+  useCreateWallet as useCreateSolanaWallet,
+  useExportWallet as useExportSolanaWallet,
+  useSignAndSendTransaction,
+  useWallets as useSolanaWallets,
+  type ConnectedStandardSolanaWallet,
+} from '@privy-io/react-auth/solana';
 
 import type { AuthAdapter } from '@/features/auth/services/auth-adapter.types';
 import type { AuthUser } from '@/features/auth/types';
-import type { Eip1193Provider, WalletAdapter } from '@/features/wallet/services/wallet-adapter.types';
+import type { WalletAdapter } from '@/features/wallet/services/wallet-adapter.types';
 import { PrivyWebBridge } from '@/providers/privy-web-bridge';
-import { bscTestnetViem, supportedViemChains } from '@/shared/config/viem-chains';
+import {
+  encodeSolanaSignature,
+  getPrivySolanaChain,
+  serializeSolanaTransaction,
+} from '@/shared/api/solana-client';
 import { env } from '@/shared/config/env';
 import { clearPendingAuthRedirect, getSafeAppPath, readPendingAuthRedirect } from '@/shared/utils/routes';
-
-const privySupportedChains = [supportedViemChains[0], supportedViemChains[1]];
 
 export function PrivyWebLiveProvider({ children }: { children: ReactNode }) {
   const oauthRedirectUrl = typeof window === 'undefined' ? undefined : window.location.origin;
@@ -29,15 +34,17 @@ export function PrivyWebLiveProvider({ children }: { children: ReactNode }) {
       appId={env.privyAppId}
       clientId={env.privyWebClientId || undefined}
       config={{
-        defaultChain: bscTestnetViem,
+        appearance: {
+          accentColor: '#C76A3C',
+          theme: '#FAF8F4',
+        },
+        customOAuthRedirectUrl: oauthRedirectUrl,
         embeddedWallets: {
-          ethereum: {
+          solana: {
             createOnLogin: 'all-users',
           },
         },
-        customOAuthRedirectUrl: oauthRedirectUrl,
         loginMethods: ['google'],
-        supportedChains: privySupportedChains,
       }}>
       <PrivyWebLiveBridge>{children}</PrivyWebLiveBridge>
     </ReactPrivyProvider>
@@ -94,9 +101,10 @@ function useLiveAuthAdapter(): AuthAdapter {
 }
 
 function useLiveWalletAdapter(): WalletAdapter {
-  const { createWallet: createEmbeddedWallet } = useCreateWallet();
-  const { ready, wallets } = useWallets();
-
+  const { createWallet: createEmbeddedWallet } = useCreateSolanaWallet();
+  const { exportWallet } = useExportSolanaWallet();
+  const { ready, wallets } = useSolanaWallets();
+  const { signAndSendTransaction: signAndSendSolanaTransaction } = useSignAndSendTransaction();
   const primaryWallet = useMemo(() => findPrimaryWallet(wallets), [wallets]);
 
   const createWallet = useCallback(async () => {
@@ -104,50 +112,55 @@ function useLiveWalletAdapter(): WalletAdapter {
       return primaryWallet.address;
     }
 
-    const wallet = await createEmbeddedWallet();
-    return wallet.address;
+    const result = await createEmbeddedWallet();
+    return result.wallet.address ?? null;
   }, [createEmbeddedWallet, primaryWallet]);
 
-  const getProvider = useCallback(async () => {
-    if (!primaryWallet) {
-      return null;
+  const exportPrivateKey = useCallback(async () => {
+    if (!primaryWallet?.address) {
+      throw new Error('Wallet is not ready.');
     }
 
-    return normalizeProvider(await primaryWallet.getEthereumProvider());
-  }, [primaryWallet]);
+    await exportWallet({ address: primaryWallet.address });
+  }, [exportWallet, primaryWallet]);
+
+  const getProvider = useCallback(async () => null, []);
+  const signMessage = useCallback(async () => null, []);
+
+  const signAndSendTransaction = useCallback<WalletAdapter['signAndSendTransaction']>(
+    async (transaction, chain) => {
+      if (!primaryWallet) {
+        return null;
+      }
+
+      const response = await signAndSendSolanaTransaction({
+        chain: getPrivySolanaChain(chain),
+        transaction: serializeSolanaTransaction(transaction),
+        wallet: primaryWallet,
+      });
+
+      return encodeSolanaSignature(response.signature);
+    },
+    [primaryWallet, signAndSendSolanaTransaction],
+  );
 
   return useMemo(
     () => ({
       address: primaryWallet?.address ?? null,
       createWallet,
+      exportPrivateKey,
       getProvider,
       isReady: ready,
+      privateKeyExportMode: 'privy-modal' as const,
+      signAndSendTransaction,
+      signMessage,
     }),
-    [createWallet, getProvider, primaryWallet?.address, ready],
+    [createWallet, exportPrivateKey, getProvider, primaryWallet, ready, signAndSendTransaction, signMessage],
   );
 }
 
-function findPrimaryWallet(wallets: ConnectedWallet[]) {
-  return (
-    wallets.find((wallet) => wallet.walletClientType === 'privy-v2') ??
-    wallets.find((wallet) => wallet.walletClientType === 'privy') ??
-    wallets[0] ??
-    null
-  );
-}
-
-function normalizeProvider(provider: EIP1193Provider): Eip1193Provider {
-  return {
-    request: (input) =>
-      provider.request({
-        method: input.method,
-        params: Array.isArray(input.params)
-          ? input.params
-          : input.params
-            ? [input.params]
-            : undefined,
-      }),
-  };
+function findPrimaryWallet(wallets: ConnectedStandardSolanaWallet[]) {
+  return wallets[0] ?? null;
 }
 
 function toAuthUser(user: User | null): AuthUser | null {

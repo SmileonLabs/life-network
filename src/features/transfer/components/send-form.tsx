@@ -3,7 +3,7 @@ import { CheckCircle2, Send, ShieldAlert } from 'lucide-react-native';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 
 import { useWallet } from '@/features/wallet/hooks/use-wallet';
-import { colors, radius, spacing } from '@/shared/theme/tokens';
+import { colors, fonts, radius, spacing } from '@/shared/theme/tokens';
 import { AppText } from '@/shared/ui/app-text';
 import { Badge } from '@/shared/ui/badge';
 import { Button } from '@/shared/ui/button';
@@ -26,7 +26,7 @@ export function SendForm() {
   );
   const parsedAmount = Number(amount);
   const hasDraft = Boolean(selectedAsset && recipient.trim() && amount.trim());
-  const recipientLabel = recipient.trim().startsWith('0x') && recipient.trim().length > 10
+  const recipientLabel = recipient.trim().length > 10
     ? shortAddress(recipient.trim(), 8, 6)
     : 'Not ready';
 
@@ -58,13 +58,19 @@ export function SendForm() {
     <View style={styles.wrap}>
       <View style={styles.summaryPanel}>
         <View style={styles.summaryTop}>
-          <Badge label="BSC transfer" tone="cyan" />
+          <Badge label="Solana transfer" tone="cyan" />
           <AppText variant="caption" tone="muted">
             Step 1 of 4
           </AppText>
         </View>
         <View style={styles.selectedAsset}>
-          <TokenLogo symbol={selectedAsset?.symbol ?? 'BNB'} accent={selectedAsset?.accent ?? colors.amber} size={54} />
+          <TokenLogo
+            accent={selectedAsset?.accent ?? colors.amber}
+            iconUrl={selectedAsset?.iconUrl}
+            mint={selectedAsset?.contractAddress}
+            size={54}
+            symbol={selectedAsset?.symbol ?? 'SOL'}
+          />
           <View style={styles.selectedCopy}>
             <AppText variant="subtitle">Send {selectedAsset?.symbol ?? 'asset'}</AppText>
             <AppText tone="muted">
@@ -90,7 +96,13 @@ export function SendForm() {
               key={asset.id}
               onPress={() => setAssetId(asset.id)}
               style={[styles.assetOption, isSelected && styles.assetOptionSelected]}>
-              <TokenLogo symbol={asset.symbol} accent={asset.accent} size={36} />
+              <TokenLogo
+                accent={asset.accent}
+                iconUrl={asset.iconUrl}
+                mint={asset.contractAddress}
+                size={36}
+                symbol={asset.symbol}
+              />
               <View style={styles.assetCopy}>
                 <AppText>{asset.symbol}</AppText>
                 <AppText variant="caption" tone="muted">
@@ -107,7 +119,7 @@ export function SendForm() {
         <View style={styles.sectionHeader}>
           <AppText variant="subtitle">Recipient</AppText>
           <AppText variant="caption" tone="muted">
-            BSC address
+            Solana address
           </AppText>
         </View>
         <View style={styles.fieldGroup}>
@@ -115,7 +127,7 @@ export function SendForm() {
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setRecipient}
-            placeholder="0x..."
+            placeholder="Solana address"
             placeholderTextColor={colors.textSubtle}
             style={styles.input}
             value={recipient}
@@ -153,7 +165,7 @@ export function SendForm() {
           },
           {
             label: 'Gas',
-            value: `${validation.estimatedGasBnb} ${nativeAsset?.symbol ?? 'BNB'}`,
+            value: `${validation.estimatedGasBnb} ${nativeAsset?.symbol ?? 'SOL'}`,
           },
           {
             label: 'Risk check',
@@ -250,8 +262,8 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   assetOptionSelected: {
-    borderColor: 'rgba(184, 255, 92, 0.54)',
-    backgroundColor: 'rgba(184, 255, 92, 0.1)',
+    borderColor: 'rgba(170, 183, 255, 0.54)',
+    backgroundColor: 'rgba(170, 183, 255, 0.1)',
   },
   assetCopy: {
     flex: 1,
@@ -270,8 +282,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   amountInput: {
+    fontFamily: fonts.light,
     fontSize: 22,
-    fontWeight: '800',
+    fontWeight: '300',
   },
   warningBox: {
     flexDirection: 'row',

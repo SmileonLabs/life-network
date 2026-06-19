@@ -8,21 +8,24 @@ const unauthenticatedRedirectDelayMs = 900;
 
 export function AuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const params = useGlobalSearchParams<Record<string, string | string[]>>();
   const router = useRouter();
-  const params = useGlobalSearchParams<{ redirect?: string }>();
   const effectivePathname = getEffectivePathname(pathname);
-  const storedRedirectPath = readPendingAuthRedirect();
+  const effectiveFullPath = getEffectiveFullPath(effectivePathname, params);
+  const signInRedirectPath = getSafeAppPath(getFirstParam(params.redirect), readPendingAuthRedirect());
   const { isAuthenticated, isReady } = useAuthSession();
+  const isAuthCallbackRoute = effectivePathname.startsWith('/auth/callback');
   const isOnboardingRoute = effectivePathname.startsWith('/onboarding');
   const isPublicRoute = effectivePathname === '/sign-in';
   const redirectHref = getRedirectHref({
+    isAuthCallbackRoute,
     isAuthenticated,
     isReady,
     isOnboardingRoute,
     isPublicRoute,
     pathname: effectivePathname,
-    redirectPath: params.redirect,
-    storedRedirectPath,
+    redirectPath: effectiveFullPath,
+    signInRedirectPath,
   });
 
   useEffect(() => {
@@ -31,7 +34,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
 
     if (isSignInRedirect(redirectHref)) {
-      writePendingAuthRedirect(effectivePathname);
+      writePendingAuthRedirect(effectiveFullPath);
       const redirectTimer = setTimeout(() => {
         router.replace(redirectHref);
       }, unauthenticatedRedirectDelayMs);
@@ -44,39 +47,45 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
     router.replace(redirectHref);
     return undefined;
-  }, [effectivePathname, redirectHref, router]);
+  }, [effectiveFullPath, effectivePathname, redirectHref, router]);
+
+  if (!isReady || redirectHref) {
+    return null;
+  }
 
   return children;
 }
 
 function getRedirectHref({
   isAuthenticated,
+  isAuthCallbackRoute,
   isReady,
   isOnboardingRoute,
   isPublicRoute,
   pathname,
   redirectPath,
-  storedRedirectPath,
+  signInRedirectPath,
 }: {
   isAuthenticated: boolean;
+  isAuthCallbackRoute: boolean;
   isReady: boolean;
   isOnboardingRoute: boolean;
   isPublicRoute: boolean;
   pathname: string;
-  redirectPath?: string;
-  storedRedirectPath: string;
+  redirectPath: string;
+  signInRedirectPath: string;
 }): Href | null {
   if (!isReady) {
     return null;
   }
 
   if (!isAuthenticated) {
-    return isPublicRoute
+    return isPublicRoute || isAuthCallbackRoute
       ? null
       : {
           pathname: '/sign-in',
           params: {
-            redirect: pathname,
+            redirect: redirectPath,
           },
         };
   }
@@ -85,8 +94,8 @@ function getRedirectHref({
     return null;
   }
 
-  if (pathname === '/sign-in') {
-    return getSafeAppPath(redirectPath, storedRedirectPath) as Href;
+  if (pathname === '/sign-in' || isAuthCallbackRoute) {
+    return signInRedirectPath as Href;
   }
 
   return null;
@@ -96,11 +105,45 @@ function isSignInRedirect(href: Href) {
   return typeof href === 'object' && 'pathname' in href && href.pathname === '/sign-in';
 }
 
-function getEffectivePathname(pathname: string) {
-  if (pathname !== '/' || typeof window === 'undefined') {
+function getEffectivePathname(pathname?: string | null) {
+  const safePathname = pathname || '/';
+
+  if (safePathname !== '/' || typeof window === 'undefined') {
+    return safePathname;
+  }
+
+  const browserPathname = window.location?.pathname;
+  return browserPathname && browserPathname !== '/' ? browserPathname : safePathname;
+}
+
+function getEffectiveFullPath(pathname: string, params: Record<string, string | string[]>) {
+  if (pathname === '/sign-in') {
     return pathname;
   }
 
-  const browserPathname = window.location.pathname;
-  return browserPathname && browserPathname !== '/' ? browserPathname : pathname;
+  const query = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (key === 'redirect' || value == null) {
+      continue;
+    }
+
+    const values = Array.isArray(value) ? value : [value];
+    for (const item of values) {
+      if (typeof item === 'string' && item.length > 0) {
+        query.append(key, item);
+      }
+    }
+  }
+
+  const search = query.toString();
+  return search ? `${pathname}?${search}` : pathname;
+}
+
+function getFirstParam(value: unknown) {
+  if (Array.isArray(value)) {
+    return value[0];
+  }
+
+  return value;
 }

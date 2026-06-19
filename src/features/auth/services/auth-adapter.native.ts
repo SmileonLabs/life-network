@@ -11,7 +11,7 @@ export function useAuthAdapter(): AuthAdapter {
   const [optimisticUser, setOptimisticUser] = useState<User | null>(null);
 
   const signInWithGoogle = useCallback(async () => {
-    const nextUser = await login({ provider: 'google' });
+    const nextUser = await login({ provider: 'google', redirectUri: '/auth/callback' });
     if (nextUser) {
       setOptimisticUser(nextUser);
     }
@@ -23,10 +23,11 @@ export function useAuthAdapter(): AuthAdapter {
   }, [logout]);
 
   const authUser = useMemo(() => toAuthUser(privyUser ?? optimisticUser), [optimisticUser, privyUser]);
+  const oauthError = state.status === 'error' ? state.error?.message : null;
 
   return useMemo(
     () => ({
-      error: error?.message ?? null,
+      error: oauthError ?? error?.message ?? null,
       isAuthenticated: Boolean(authUser),
       isDemoMode,
       isReady: isReady && state.status !== 'loading',
@@ -34,7 +35,7 @@ export function useAuthAdapter(): AuthAdapter {
       signOut,
       user: authUser,
     }),
-    [authUser, error?.message, isReady, signInWithGoogle, signOut, state.status],
+    [authUser, error?.message, isReady, oauthError, signInWithGoogle, signOut, state.status],
   );
 }
 

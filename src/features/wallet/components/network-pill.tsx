@@ -11,7 +11,7 @@ export function NetworkPill() {
   const chain = supportedChains[chainId];
 
   function toggleChain() {
-    setChainId(chainId === 56 ? 97 : 56);
+    setChainId(chainId === 103 ? 101 : 103);
   }
 
   return (
@@ -44,4 +44,3 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 });
-

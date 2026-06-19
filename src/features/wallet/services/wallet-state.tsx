@@ -10,48 +10,46 @@ import {
   useRef,
   useState,
 } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 
-import { useAuthSession } from '@/features/auth/hooks/use-auth-session';
-import { fetchExplorerActivities } from '@/features/activity/services/explorer-activity';
 import { getDemoActivities } from '@/features/activity/services/demo-activity';
 import type { WalletActivity } from '@/features/activity/types';
-import { discoverBep20Assets } from '@/features/tokens/services/token-discovery';
+import { useAuthSession } from '@/features/auth/hooks/use-auth-session';
 import { getDemoAssets } from '@/features/tokens/services/demo-tokens';
 import type { AssetBalance } from '@/features/tokens/types';
+import { validateTransfer } from '@/features/transfer/services/transfer-validation';
 import {
-  isAmountGreaterThanBalance,
-  isAmountWithGasGreaterThanBalance,
-  validateTransfer,
-} from '@/features/transfer/services/transfer-validation';
-import {
-  bep20TransferGasFallbackBnb,
   getGasReserveBnb,
   nativeTransferGasFallbackBnb,
+  splTransferGasFallbackSol,
   type TransferValidation,
 } from '@/features/transfer/types';
 import { useWalletAdapter } from '@/features/wallet/services/wallet-adapter';
-import type { Eip1193Provider } from '@/features/wallet/services/wallet-adapter.types';
 import type { WalletAccount } from '@/features/wallet/types';
 import {
-  encodeBep20Transfer,
+  buildSolTransferTransaction,
   estimateTransferFee,
   getAddressKind,
+  getExplorerAddressUrl,
+  getExplorerTxUrl,
   getNativeBalance,
-  getTokenBalance,
-  getTokenMetadata,
-  getTransactionLookupSummary,
-  getTransactionReceiptSummary,
-  simulateBep20Transfer,
-  toEvmAddress,
-  toNativeValueHex,
-  type AddressKind,
-  type TokenTransferSummary,
-} from '@/shared/api/evm-client';
-import { fetchBnbUsdPrice } from '@/shared/api/price-feed';
-import { defaultChain, supportedChains, type ChainConfig, type SupportedChainId } from '@/shared/config/chains';
+  getSplTokenBalance,
+  getSplTokenMetadata,
+  getTransactionStatus,
+  type SolanaAccountKind,
+} from '@/shared/api/solana-client';
+import { fetchSolUsdPrice } from '@/shared/api/price-feed';
+import { defaultChain, supportedChains, type SupportedChainId } from '@/shared/config/chains';
+import { getKnownTokenByMint } from '@/shared/config/token-registry';
 import { colors } from '@/shared/theme/tokens';
-import { isSameAddress, makeDemoAddress, makeDemoHash, normalizeAddress } from '@/shared/utils/address';
+import {
+  isAddress,
+  isSameAddress,
+  makeDemoAddress,
+  makeDemoHash,
+  normalizeAddress,
+  toSolanaSignature,
+} from '@/shared/utils/address';
 import { shortAddress } from '@/shared/utils/format';
 import { readStorageValue, writeStorageValue } from '@/shared/utils/storage';
 
@@ -77,7 +75,7 @@ type FeeEstimateResult = {
 };
 
 type RecipientInspectionResult = {
-  kind: AddressKind;
+  kind: SolanaAccountKind;
   warning: string | null;
 };
 
@@ -99,6 +97,9 @@ type WalletContextValue = {
   totalUsd: number;
   lifeAsset: AssetBalance | undefined;
   nativeAsset: AssetBalance | undefined;
+  isWalletInitializing: boolean;
+  walletSetupError: string | null;
+  retryWalletSetup: () => Promise<string | null>;
   activities: WalletActivity[];
   isRefreshing: boolean;
   refreshError: string | null;
@@ -140,13 +141,13 @@ function createMainWallet({
   }
 
   return {
-    id: `generated:${userId}:${chainId}`,
-    source: 'privy-generated',
-    address: address ?? makeDemoAddress(`${userId}:${chainId}:generated`),
-    label: 'Main Wallet',
+    address: address ?? makeDemoAddress(`${userId}:solana:generated`),
     chainId,
     createdAt: new Date().toISOString(),
+    id: `generated:${userId}:solana`,
     isPrivy,
+    label: 'Main Wallet',
+    source: 'privy-generated',
   };
 }
 
@@ -154,19 +155,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   const { user } = useAuthSession();
   const walletAdapter = useWalletAdapter();
   const lastForegroundRefreshRef = useRef(0);
+  const walletSetupInFlightRef = useRef(false);
   const [chainId, setChainIdState] = useState<SupportedChainId>(() => readStoredChainId());
-  const [activeWalletId, setActiveWalletIdState] = useState<string>(
-    () => readStoredValue(activeWalletKey) ?? '',
-  );
-  const [assetDebits, setAssetDebits] = useState<Record<string, number>>(
-    () => readStoredValue(assetDebitsKey) ?? {},
-  );
-  const [localActivities, setLocalActivities] = useState<WalletActivity[]>(
-    () => readStoredValue(localActivitiesKey) ?? [],
-  );
-  const [manualAssets, setManualAssets] = useState<AssetBalance[]>(
-    () => readStoredValue(manualAssetsKey) ?? [],
-  );
+  const [activeWalletId, setActiveWalletIdState] = useState<string>(() => readStoredValue(activeWalletKey) ?? '');
+  const [assetDebits, setAssetDebits] = useState<Record<string, number>>(() => readStoredValue(assetDebitsKey) ?? {});
+  const [localActivities, setLocalActivities] = useState<WalletActivity[]>(() => readStoredValue(localActivitiesKey) ?? []);
+  const [manualAssets, setManualAssets] = useState<AssetBalance[]>(() => readStoredValue(manualAssetsKey) ?? []);
   const [liveNativeBalance, setLiveNativeBalance] = useState<{
     address: string;
     balance: number;
@@ -177,29 +171,30 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     balances: Record<string, number>;
     chainId: SupportedChainId;
   } | null>(null);
-  const [discoveredExplorerAssets, setDiscoveredExplorerAssets] = useState<{
-    address: string;
-    assets: AssetBalance[];
-    chainId: SupportedChainId;
-  } | null>(null);
-  const [explorerActivities, setExplorerActivities] = useState<WalletActivity[]>([]);
-  const [liveBnbPriceUsd, setLiveBnbPriceUsd] = useState<number | null>(null);
+  const [liveSolPriceUsd, setLiveSolPriceUsd] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<string | null>(null);
+  const [isWalletInitializing, setIsWalletInitializing] = useState(false);
+  const [walletSetupError, setWalletSetupError] = useState<string | null>(null);
+  const liveSyncEnabled = Platform.OS === 'web' || walletAdapter.isReady;
 
   useEffect(() => {
+    if (!liveSyncEnabled) {
+      return undefined;
+    }
+
     let cancelled = false;
 
-    fetchBnbUsdPrice().then((price) => {
+    fetchSolUsdPrice().then((price) => {
       if (!cancelled && price !== null) {
-        setLiveBnbPriceUsd(price);
+        setLiveSolPriceUsd(price);
       }
     });
 
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [liveSyncEnabled]);
 
   const mainWallet = useMemo(() => {
     if (!user || user.method !== 'google') {
@@ -215,11 +210,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   }, [chainId, user, walletAdapter.address]);
 
   const wallets = useMemo(() => (mainWallet ? [mainWallet] : []), [mainWallet]);
-
-  const activeWallet = useMemo(
-    () => wallets.find((wallet) => wallet.id === activeWalletId) ?? wallets[0] ?? null,
-    [activeWalletId, wallets],
-  );
+  const activeWallet = useMemo(() => wallets.find((wallet) => wallet.id === activeWalletId) ?? wallets[0] ?? null, [activeWalletId, wallets]);
   const activeWalletAddress = activeWallet?.address ?? null;
 
   const setActiveWalletId = useCallback((walletId: string) => {
@@ -232,44 +223,55 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     setChainIdState(nextChainId);
   }, []);
 
-  useEffect(() => {
-    if (!user?.isPrivy || !walletAdapter.isReady || walletAdapter.address) {
-      return;
+  const retryWalletSetup = useCallback(async () => {
+    if (!user?.isPrivy) {
+      return null;
     }
 
-    walletAdapter.createWallet().catch(() => {
-      // Privy exposes wallet creation errors through its own UI/state.
-    });
+    if (walletAdapter.address) {
+      setWalletSetupError(null);
+      return walletAdapter.address;
+    }
+
+    if (!walletAdapter.isReady || walletSetupInFlightRef.current) {
+      return null;
+    }
+
+    walletSetupInFlightRef.current = true;
+    setIsWalletInitializing(true);
+    setWalletSetupError(null);
+
+    try {
+      const nextAddress = await walletAdapter.createWallet();
+
+      if (!nextAddress) {
+        throw new Error('Wallet recovery is still pending.');
+      }
+
+      return nextAddress;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to start wallet.';
+      setWalletSetupError(message);
+      return null;
+    } finally {
+      walletSetupInFlightRef.current = false;
+      setIsWalletInitializing(false);
+    }
   }, [user?.isPrivy, walletAdapter]);
 
   useEffect(() => {
-    if (!activeWallet?.isPrivy || !toEvmAddress(activeWallet.address)) {
-      return;
-    }
-
-    let cancelled = false;
-
-    getNativeBalance(activeWallet.address, chainId)
-      .then((balance) => {
-        if (!cancelled && balance !== null) {
-          setLiveNativeBalance({ address: activeWallet.address, balance, chainId });
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setLiveNativeBalance(null);
-        }
-      });
+    const timer = setTimeout(() => {
+      retryWalletSetup().catch(() => undefined);
+    }, 0);
 
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
     };
-  }, [activeWallet?.address, activeWallet?.isPrivy, chainId]);
+  }, [retryWalletSetup]);
 
   const refreshWallet = useCallback(async () => {
-    if (!activeWallet?.isPrivy || !toEvmAddress(activeWallet.address)) {
-      setDiscoveredExplorerAssets(null);
-      setExplorerActivities([]);
+    if (!activeWallet?.isPrivy || !isAddress(activeWallet.address)) {
+      setLiveNativeBalance(null);
       setLiveTokenBalances(null);
       setRefreshError(null);
       return;
@@ -281,18 +283,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     try {
       const baseAssets = getDemoAssets(chainId);
       const chainManualAssets = getScopedManualAssets(manualAssets, chainId, activeWallet.address);
-      const knownContracts = [...baseAssets, ...chainManualAssets]
-        .map((asset) => asset.contractAddress)
-        .filter((address): address is string => Boolean(address));
-      const [nativeBalance, tokenDiscovery, explorerActivity, bnbPriceUsd] = await Promise.all([
+      const splAssets = [...baseAssets, ...chainManualAssets].filter((asset) => asset.type === 'spl' && asset.contractAddress);
+      const [nativeBalance, tokenBalances, solPriceUsd] = await Promise.all([
         getNativeBalance(activeWallet.address, chainId),
-        discoverBep20Assets({
-          address: activeWallet.address,
-          chainId,
-          knownContracts,
-        }),
-        fetchExplorerActivities(activeWallet.address, chainId),
-        fetchBnbUsdPrice(),
+        getLiveTokenBalances(activeWallet.address, chainId, splAssets),
+        fetchSolUsdPrice(),
       ]);
 
       if (nativeBalance !== null) {
@@ -303,33 +298,27 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      if (bnbPriceUsd !== null) {
-        setLiveBnbPriceUsd(bnbPriceUsd);
-      }
-
-      setDiscoveredExplorerAssets({
-        address: activeWallet.address,
-        assets: tokenDiscovery.assets,
-        chainId,
-      });
-      setExplorerActivities(explorerActivity.activities);
       setLiveTokenBalances({
         address: activeWallet.address,
-        balances: await getLiveTokenBalances(activeWallet.address, chainId, [...baseAssets, ...chainManualAssets, ...tokenDiscovery.assets]),
+        balances: tokenBalances,
         chainId,
       });
 
-      const skippedNotice = tokenDiscovery.skipped || explorerActivity.skipped ? 'Explorer sync unavailable.' : null;
-      const nextError = [tokenDiscovery.error, explorerActivity.error, skippedNotice].filter(Boolean).join(' · ');
-      setRefreshError(nextError || null);
+      if (solPriceUsd !== null) {
+        setLiveSolPriceUsd(solPriceUsd);
+      }
     } catch (error) {
-      setRefreshError(error instanceof Error ? error.message : 'Unable to refresh wallet.');
+      setRefreshError(error instanceof Error ? error.message : 'Solana sync delayed.');
     } finally {
       setIsRefreshing(false);
     }
   }, [activeWallet, chainId, manualAssets]);
 
   useEffect(() => {
+    if (!liveSyncEnabled) {
+      return undefined;
+    }
+
     const timer = setTimeout(() => {
       refreshWallet();
     }, 0);
@@ -337,7 +326,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     return () => {
       clearTimeout(timer);
     };
-  }, [refreshWallet]);
+  }, [liveSyncEnabled, refreshWallet]);
 
   const refreshActivityStatus = useCallback(
     async (hash?: string) => {
@@ -357,28 +346,22 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const receiptEntries = await Promise.all(
+      const checkedAt = new Date().toISOString();
+      const statusEntries = await Promise.all(
         pendingActivities.map(async (activity) => ({
-          chainId: activity.chainId,
           hash: activity.hash,
-          receipt: await getTransactionReceiptSummary(activity.hash, chainId),
+          status: await getTransactionStatus(activity.hash, activity.chainId),
         })),
       );
-      const checkedAt = new Date().toISOString();
 
       setLocalActivities((currentActivities) => {
         let changed = false;
         const settledDebits: { amount: number; key: string }[] = [];
         const nextActivities = currentActivities.map((activity) => {
-          const receipt = receiptEntries.find((entry) => entry.chainId === activity.chainId && entry.hash === activity.hash)?.receipt;
-          const nextStatus = receipt?.status;
+          const entry = statusEntries.find((item) => item.hash === activity.hash);
           const pendingMeta = getPendingMeta(activity, checkedAt);
 
-          if (!nextStatus) {
-            return activity;
-          }
-
-          if (nextStatus === 'pending') {
+          if (!entry?.status) {
             if (!hasPendingMetaChanged(activity, pendingMeta)) {
               return activity;
             }
@@ -390,7 +373,20 @@ export function WalletProvider({ children }: { children: ReactNode }) {
             };
           }
 
-          if (nextStatus === activity.status) {
+          if (entry.status.status === 'pending') {
+            if (!hasPendingMetaChanged(activity, pendingMeta)) {
+              return activity;
+            }
+
+            changed = true;
+            return {
+              ...activity,
+              confirmations: entry.status.confirmations,
+              ...pendingMeta,
+            };
+          }
+
+          if (entry.status.status === activity.status) {
             return activity;
           }
 
@@ -410,13 +406,11 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
           return {
             ...activity,
-            blockNumber: receipt?.blockNumber ?? activity.blockNumber,
-            confirmations: receipt?.confirmations ?? activity.confirmations,
-            feeNative: receipt?.feeNative ?? activity.feeNative,
+            confirmations: entry.status.confirmations,
             lastCheckedAt: checkedAt,
             pendingDebits: undefined,
             pendingNotice: undefined,
-            status: nextStatus,
+            status: entry.status.status,
           };
         });
 
@@ -448,6 +442,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
   );
 
   useEffect(() => {
+    if (!liveSyncEnabled) {
+      return undefined;
+    }
+
     if (!activeWalletAddress) {
       return;
     }
@@ -463,7 +461,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     const startTimer = setTimeout(() => {
       refreshActivityStatus().catch(() => undefined);
     }, 0);
-
     const timer = setInterval(() => {
       refreshActivityStatus().catch(() => undefined);
     }, 15000);
@@ -472,9 +469,13 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       clearTimeout(startTimer);
       clearInterval(timer);
     };
-  }, [activeWalletAddress, chainId, localActivities, refreshActivityStatus]);
+  }, [activeWalletAddress, chainId, liveSyncEnabled, localActivities, refreshActivityStatus]);
 
   useEffect(() => {
+    if (!liveSyncEnabled) {
+      return undefined;
+    }
+
     if (!activeWallet?.isPrivy || !activeWalletAddress) {
       return;
     }
@@ -505,37 +506,33 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       refreshAfterForeground();
     };
 
-    if (typeof document !== 'undefined') {
+    if (Platform.OS === 'web' && typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
       document.addEventListener('visibilitychange', handleVisibilityChange);
     }
 
-    if (typeof window !== 'undefined') {
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       window.addEventListener('focus', handleWindowFocus);
     }
 
     return () => {
       appStateSubscription.remove();
 
-      if (typeof document !== 'undefined') {
+      if (Platform.OS === 'web' && typeof document !== 'undefined' && typeof document.removeEventListener === 'function') {
         document.removeEventListener('visibilitychange', handleVisibilityChange);
       }
 
-      if (typeof window !== 'undefined') {
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && typeof window.removeEventListener === 'function') {
         window.removeEventListener('focus', handleWindowFocus);
       }
     };
-  }, [activeWallet?.isPrivy, activeWalletAddress, refreshActivityStatus, refreshWallet]);
+  }, [activeWallet?.isPrivy, activeWalletAddress, liveSyncEnabled, refreshActivityStatus, refreshWallet]);
 
   const assets = useMemo(() => {
     const walletKey = activeWalletAddress ?? 'no-wallet';
-    const shouldUseLiveNativeBalance = Boolean(user?.isPrivy);
     const baseAssets = getDemoAssets(chainId);
     const chainManualAssets = activeWalletAddress ? getScopedManualAssets(manualAssets, chainId, activeWalletAddress) : [];
-    const scopedDiscoveredAssets =
-      activeWalletAddress && discoveredExplorerAssets?.address === activeWalletAddress && discoveredExplorerAssets.chainId === chainId
-        ? discoveredExplorerAssets.assets
-        : [];
-    const mergedAssets = mergeAssets(baseAssets, chainManualAssets, scopedDiscoveredAssets);
+    const mergedAssets = mergeAssets(baseAssets, chainManualAssets);
+    const shouldUseLiveBalance = Boolean(user?.isPrivy);
 
     return mergedAssets.map((asset) => {
       const liveBalance =
@@ -546,23 +543,23 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           ? liveNativeBalance.balance
           : null;
       const liveTokenBalance =
-        asset.type === 'bep20' &&
+        asset.type === 'spl' &&
         asset.contractAddress &&
         activeWalletAddress &&
         liveTokenBalances?.address === activeWalletAddress &&
         liveTokenBalances.chainId === chainId
           ? liveTokenBalances.balances[getTokenBalanceKey(chainId, asset.contractAddress)] ?? null
           : null;
-      const debitKey = `${walletKey}:${asset.id}`;
-      const debit = assetDebits[debitKey] ?? 0;
-      const fallbackBalance = shouldUseLiveNativeBalance ? 0 : asset.balance;
+      const debit = assetDebits[`${walletKey}:${asset.id}`] ?? 0;
+      const fallbackBalance = shouldUseLiveBalance ? 0 : asset.balance;
+
       return {
         ...asset,
         balance: Math.max((liveBalance ?? liveTokenBalance ?? fallbackBalance) - debit, 0),
-        priceUsd: getLiveAssetPriceUsd(asset, liveBnbPriceUsd),
+        priceUsd: getLiveAssetPriceUsd(asset, liveSolPriceUsd),
       };
     });
-  }, [activeWalletAddress, assetDebits, chainId, discoveredExplorerAssets, liveBnbPriceUsd, liveNativeBalance, liveTokenBalances, manualAssets, user?.isPrivy]);
+  }, [activeWalletAddress, assetDebits, chainId, liveNativeBalance, liveSolPriceUsd, liveTokenBalances, manualAssets, user?.isPrivy]);
 
   const nativeAsset = assets.find((asset) => asset.type === 'native');
   const lifeAsset = assets.find((asset) => asset.symbol === 'LIFE');
@@ -575,93 +572,48 @@ export function WalletProvider({ children }: { children: ReactNode }) {
     }
 
     const chainLocalActivities = localActivities.filter((activity) => activity.chainId === chainId && isActivityForWallet(activity, activeWallet.address));
-    const scopedExplorerActivities = explorerActivities.filter((activity) => isActivityForWallet(activity, activeWallet.address));
     const demoActivities = user?.isPrivy ? [] : getDemoActivities(activeWallet.address, chainId);
-    return mergeActivities([...chainLocalActivities, ...scopedExplorerActivities, ...demoActivities]);
-  }, [activeWallet, chainId, explorerActivities, localActivities, user?.isPrivy]);
+    return mergeActivities([...chainLocalActivities, ...demoActivities]);
+  }, [activeWallet, chainId, localActivities, user?.isPrivy]);
 
   const buildLookupActivity = useCallback(
     async (hash: string, targetChainId: SupportedChainId): Promise<WalletActivity | null> => {
-      const summary = await getTransactionLookupSummary(hash, targetChainId);
+      const signature = toSolanaSignature(hash);
 
-      if (!summary) {
+      if (!signature) {
+        return null;
+      }
+
+      const existingActivity = localActivities.find((activity) => activity.hash === signature && activity.chainId === targetChainId);
+
+      if (existingActivity) {
+        return existingActivity;
+      }
+
+      const status = await getTransactionStatus(signature, targetChainId);
+
+      if (!status) {
         return null;
       }
 
       const chain = supportedChains[targetChainId];
-      const from = summary.from ? normalizeAddress(summary.from) : undefined;
-      const to = summary.to ? normalizeAddress(summary.to) : undefined;
-      const walletAddress = activeWallet?.address ? normalizeAddress(activeWallet.address) : null;
-      const tokenTransfer = pickPrimaryTokenTransfer(summary.tokenTransfers, walletAddress);
-
-      if (tokenTransfer) {
-        const tokenFrom = normalizeAddress(tokenTransfer.from);
-        const tokenTo = normalizeAddress(tokenTransfer.to);
-        const isOutgoing = Boolean(walletAddress && tokenFrom === walletAddress);
-        const isIncoming = Boolean(walletAddress && tokenTo === walletAddress);
-        const direction = isOutgoing ? 'out' : 'in';
-        const counterparty = isOutgoing ? tokenTo : isIncoming ? tokenFrom : tokenTo;
-        const matchingAsset = assets.find(
-          (asset) => asset.chainId === targetChainId && asset.contractAddress && isSameAddress(asset.contractAddress, tokenTransfer.contractAddress),
-        );
-
-        return {
-          id: `${targetChainId}:${summary.hash}:${tokenTransfer.contractAddress}:lookup`,
-          amount: tokenTransfer.amount,
-          assetId: matchingAsset?.id,
-          blockNumber: summary.blockNumber,
-          chainId: targetChainId,
-          confirmations: summary.confirmations,
-          contractAddress: normalizeAddress(tokenTransfer.contractAddress),
-          counterparty,
-          direction,
-          explorerUrl: `${chain.explorerBaseUrl}/tx/${summary.hash}`,
-          feeNative: summary.feeNative,
-          from: tokenFrom,
-          hash: summary.hash,
-          status: summary.status,
-          subtitle: `${isOutgoing ? 'To' : isIncoming ? 'From' : 'Address'} ${shortAddress(counterparty)}`,
-          symbol: tokenTransfer.symbol,
-          timestamp: summary.timestamp ?? new Date().toISOString(),
-          title: `${tokenTransfer.symbol} ${direction === 'out' ? 'sent' : 'received'}`,
-          to: tokenTo,
-        };
-      }
-
-      const isOutgoing = Boolean(walletAddress && from === walletAddress);
-      const isIncoming = Boolean(walletAddress && to === walletAddress);
-      const direction = isOutgoing ? 'out' : 'in';
-      const counterparty = isOutgoing ? to : isIncoming ? from : to ?? from;
-      const hasNativeValue = summary.amountNative > 0;
-      const title = hasNativeValue
-        ? `${chain.nativeCurrency.symbol} ${direction === 'out' ? 'sent' : 'received'}`
-        : 'Contract interaction';
-      const subtitle = counterparty
-        ? `${isOutgoing ? 'To' : isIncoming ? 'From' : 'Address'} ${shortAddress(counterparty)}`
-        : chain.shortName;
+      const timestamp = new Date().toISOString();
 
       return {
-        id: `${targetChainId}:${summary.hash}:lookup`,
-        amount: summary.amountNative,
-        assetId: nativeAsset?.chainId === targetChainId ? nativeAsset.id : undefined,
-        blockNumber: summary.blockNumber,
+        amount: 0,
         chainId: targetChainId,
-        confirmations: summary.confirmations,
-        counterparty,
-        direction,
-        explorerUrl: `${chain.explorerBaseUrl}/tx/${summary.hash}`,
-        feeNative: summary.feeNative,
-        from,
-        hash: summary.hash,
-        status: summary.status,
-        subtitle,
+        direction: 'out',
+        explorerUrl: getExplorerTxUrl(signature, targetChainId),
+        hash: signature,
+        id: `${targetChainId}:${signature}:lookup`,
+        status: status.status,
+        subtitle: chain.shortName,
         symbol: chain.nativeCurrency.symbol,
-        timestamp: summary.timestamp ?? new Date().toISOString(),
-        title,
-        to,
+        timestamp,
+        title: 'Solana transaction',
       };
     },
-    [activeWallet, assets, nativeAsset],
+    [localActivities],
   );
 
   const lookupActivityByHash = useCallback(
@@ -709,74 +661,79 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      const contract = toEvmAddress(contractAddress.trim());
+      const mint = normalizeAddress(contractAddress.trim());
 
-      if (!contract) {
+      if (!isAddress(mint)) {
         return {
           asset: null,
-          error: 'Enter a valid token contract.',
+          error: 'Enter a valid token address.',
         };
       }
 
-      const key = getTokenBalanceKey(chainId, contract);
+      const key = getTokenBalanceKey(chainId, mint);
       const existingAsset = assets.find((asset) => asset.contractAddress && getTokenBalanceKey(chainId, asset.contractAddress) === key);
+      const knownToken = getKnownTokenByMint(chainId, mint);
 
       if (existingAsset) {
+        if (knownToken && (existingAsset.symbol !== knownToken.symbol || existingAsset.name !== knownToken.name)) {
+          const nextAsset = {
+            ...existingAsset,
+            accent: knownToken.accent,
+            name: knownToken.name,
+            symbol: knownToken.symbol,
+          };
+
+          if (existingAsset.discoveredBy === 'manual') {
+            setManualAssets((currentAssets) => {
+              const nextAssets = upsertManualAsset(currentAssets, nextAsset);
+              writeStoredValue(manualAssetsKey, nextAssets);
+              return nextAssets;
+            });
+          }
+
+          return {
+            asset: nextAsset,
+            error: null,
+          };
+        }
+
         return {
           asset: existingAsset,
           error: null,
         };
       }
 
-      const metadata = await getTokenMetadata(contract, chainId);
+      const metadata = await getSplTokenMetadata(mint, chainId);
 
       if (!metadata) {
-        const otherChainIds = (Object.keys(supportedChains).map(Number) as SupportedChainId[]).filter((id) => id !== chainId);
-
-        for (const nextChainId of otherChainIds) {
-          const nextMetadata = await getTokenMetadata(contract, nextChainId);
-
-          if (nextMetadata) {
-            return {
-              asset: null,
-              error: `Token found on ${supportedChains[nextChainId].shortName}.`,
-              networkHint: {
-                chainId: nextChainId,
-                name: nextMetadata.name,
-                symbol: nextMetadata.symbol,
-              },
-            };
-          }
-        }
-
         return {
           asset: null,
-          error: 'Token contract was not found.',
+          error: `Token address was not found on ${supportedChains[chainId].shortName}.`,
         };
       }
 
       const balance =
-        (await getTokenBalance({
+        (await getSplTokenBalance({
           address: activeWallet.address,
           chainId,
-          contractAddress: contract,
-          decimals: metadata.decimals,
+          mint,
         })) ?? 0;
 
       const asset: AssetBalance = {
-        id: key,
-        accent: colors.cyan,
+        accent: metadata.accent ?? colors.cyan,
         balance,
         chainId,
         change24h: 0,
-        contractAddress: normalizeAddress(contract),
+        contractAddress: mint,
         decimals: metadata.decimals,
         discoveredBy: 'manual',
+        id: key,
+        iconUrl: metadata.iconUrl,
         name: metadata.name,
+        ownerAddress: normalizeAddress(activeWallet.address),
         priceUsd: 0,
         symbol: metadata.symbol,
-        type: 'bep20',
-        ownerAddress: normalizeAddress(activeWallet.address),
+        type: 'spl',
         verified: true,
       };
 
@@ -868,9 +825,9 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const inspectRecipient = useCallback(
     async (recipient: string, assetId?: string): Promise<RecipientInspectionResult> => {
-      const address = toEvmAddress(recipient.trim());
+      const address = normalizeAddress(recipient.trim());
 
-      if (!address) {
+      if (!isAddress(address)) {
         return {
           kind: 'unknown',
           warning: null,
@@ -886,10 +843,10 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         };
       }
 
-      if (asset?.type === 'bep20' && asset.contractAddress && isSameAddress(address, asset.contractAddress)) {
+      if (asset?.type === 'spl' && asset.contractAddress && isSameAddress(address, asset.contractAddress)) {
         return {
-          kind: 'contract',
-          warning: `Do not send ${asset.symbol} to its token contract.`,
+          kind: 'account',
+          warning: `Do not send ${asset.symbol} to its token address.`,
         };
       }
 
@@ -897,7 +854,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
       return {
         kind,
-        warning: kind === 'contract' ? 'Recipient is a contract address. Check it before sending.' : null,
+        warning: kind === 'program' ? 'Recipient is a program account. Check it before sending.' : null,
       };
     },
     [activeWallet, assets, chainId],
@@ -915,7 +872,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       const asset = assets.find((item) => item.id === assetId);
       const parsedAmount = Number(amount);
 
-      if (!asset || !toEvmAddress(recipient) || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
+      if (!asset || !isAddress(recipient) || !Number.isFinite(parsedAmount) || parsedAmount <= 0) {
         return {
           error: null,
           fee: null,
@@ -923,13 +880,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       }
 
       try {
-        const fee = await estimateTransferFee({
-          amount,
-          asset,
-          chainId,
-          from: activeWallet.address,
-          recipient,
-        });
+        const fee = asset.type === 'native' ? await estimateTransferFee(chainId) : splTransferGasFallbackSol;
 
         return {
           error: null,
@@ -937,7 +888,7 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         };
       } catch {
         return {
-          error: 'Gas estimate unavailable.',
+          error: 'Network fee unavailable.',
           fee: null,
         };
       }
@@ -963,16 +914,12 @@ export function WalletProvider({ children }: { children: ReactNode }) {
       let optimisticFee = validation.estimatedGasBnb;
 
       if (activeWallet.isPrivy) {
-        const provider = await walletAdapter.getProvider();
-        const from = toEvmAddress(activeWallet.address);
-        const to = toEvmAddress(recipient);
-
-        if (!provider || !from || !to) {
-          throw new Error('Wallet is not ready.');
+        if (asset.type !== 'native') {
+          throw new Error('SPL transfers are not connected yet.');
         }
 
-        await ensureProviderChain(provider, supportedChains[chainId]);
-        optimisticFee = await runPreflightChecks({
+        optimisticFee = getGasReserveBnb((await estimateTransferFee(chainId).catch(() => null)) ?? nativeTransferGasFallbackBnb);
+        await runPreflightChecks({
           activeWallet,
           amount,
           asset,
@@ -981,35 +928,17 @@ export function WalletProvider({ children }: { children: ReactNode }) {
           recipient,
         });
 
-        const transactionParams =
-          asset.type === 'native'
-            ? {
-                chainId: `0x${chainId.toString(16)}`,
-                from,
-                to,
-                value: toNativeValueHex(amount),
-              }
-            : await getBep20TransactionParams({
-                amount,
-                asset,
-                chainId,
-                from,
-                recipient,
-              });
-
-        const response = await provider.request({
-          method: 'eth_sendTransaction',
-          params: [transactionParams],
+        const transaction = await buildSolTransferTransaction({
+          amount,
+          chainId,
+          from: activeWallet.address,
+          recipient,
         });
-
-        transactionHash = typeof response === 'string' ? response : null;
+        transactionHash = await walletAdapter.signAndSendTransaction(transaction, supportedChains[chainId]);
 
         if (!transactionHash) {
           throw new Error('Transaction was not submitted.');
         }
-
-      } else {
-        optimisticFee = validation.estimatedGasBnb;
       }
 
       if (transactionHash) {
@@ -1023,7 +952,6 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         });
       }
 
-      const chain = supportedChains[chainId];
       const normalizedRecipient = normalizeAddress(recipient);
       const submittedAt = new Date().toISOString();
       const pendingDebits = getPendingDebits({
@@ -1033,25 +961,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         nativeAsset,
       });
       const activity: WalletActivity = {
-        id: `local:${Date.now()}`,
+        amount: parsedAmount,
         assetId,
         chainId,
         contractAddress: asset.contractAddress ? normalizeAddress(asset.contractAddress) : undefined,
         counterparty: normalizedRecipient,
-        hash: transactionHash ?? makeDemoHash(`${activeWallet.address}:${recipient}:${asset.symbol}:${amount}`),
-        title: `${asset.symbol} sent`,
-        subtitle: `To ${shortAddress(normalizedRecipient)}`,
         direction: 'out',
-        status: transactionHash ? 'pending' : 'success',
-        symbol: asset.symbol,
-        amount: parsedAmount,
+        explorerUrl: transactionHash ? getExplorerTxUrl(transactionHash, chainId) : getExplorerAddressUrl(activeWallet.address, chainId),
         feeNative: optimisticFee,
         from: normalizeAddress(activeWallet.address),
+        hash: transactionHash ?? makeDemoHash(`${activeWallet.address}:${recipient}:${asset.symbol}:${amount}`),
+        id: `local:${Date.now()}`,
         lastCheckedAt: transactionHash ? submittedAt : undefined,
         pendingDebits: transactionHash ? pendingDebits : undefined,
+        status: transactionHash ? 'pending' : 'success',
+        subtitle: `To ${shortAddress(normalizedRecipient)}`,
+        symbol: asset.symbol,
         timestamp: submittedAt,
+        title: `${asset.symbol} sent`,
         to: normalizedRecipient,
-        explorerUrl: transactionHash ? `${chain.explorerBaseUrl}/tx/${transactionHash}` : `${chain.explorerBaseUrl}/address/${activeWallet.address}`,
       };
 
       setLocalActivities((currentActivities) => {
@@ -1066,55 +994,61 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<WalletContextValue>(
     () => ({
-      chainId,
-      setChainId,
-      wallets,
       activeWallet,
-      setActiveWalletId,
+      activities,
+      addTokenByContract,
       assets,
+      chainId,
       coreAssets,
       discoveredAssets,
-      totalUsd,
-      lifeAsset,
-      nativeAsset,
-      activities,
-      isRefreshing,
-      refreshError,
-      refreshWallet,
-      refreshActivityStatus,
-      lookupActivityByHash,
-      lookupActivityAcrossChains,
-      addTokenByContract,
-      removeManualToken,
       estimateSendFee,
       inspectRecipient,
-      validateSend,
+      isWalletInitializing,
+      isRefreshing,
+      lifeAsset,
+      lookupActivityAcrossChains,
+      lookupActivityByHash,
+      nativeAsset,
+      refreshActivityStatus,
+      refreshError,
+      refreshWallet,
+      removeManualToken,
+      retryWalletSetup,
       sendTransfer,
+      setActiveWalletId,
+      setChainId,
+      totalUsd,
+      validateSend,
+      walletSetupError,
+      wallets,
     }),
     [
       activeWallet,
-      addTokenByContract,
       activities,
+      addTokenByContract,
       assets,
       chainId,
       coreAssets,
       discoveredAssets,
       estimateSendFee,
       inspectRecipient,
+      isWalletInitializing,
       isRefreshing,
       lifeAsset,
-      lookupActivityByHash,
       lookupActivityAcrossChains,
+      lookupActivityByHash,
       nativeAsset,
+      refreshActivityStatus,
       refreshError,
       refreshWallet,
-      refreshActivityStatus,
       removeManualToken,
+      retryWalletSetup,
       sendTransfer,
       setActiveWalletId,
       setChainId,
       totalUsd,
       validateSend,
+      walletSetupError,
       wallets,
     ],
   );
@@ -1125,16 +1059,16 @@ export function WalletProvider({ children }: { children: ReactNode }) {
 async function getLiveTokenBalances(address: string, chainId: SupportedChainId, assets: AssetBalance[]) {
   const entries = await Promise.all(
     assets
-      .filter((asset) => asset.type === 'bep20' && Boolean(asset.contractAddress))
+      .filter((asset) => asset.type === 'spl' && Boolean(asset.contractAddress))
       .map(async (asset) => {
-        const balance = await getTokenBalance({
+        const mint = asset.contractAddress ?? '';
+        const balance = await getSplTokenBalance({
           address,
           chainId,
-          contractAddress: asset.contractAddress ?? '',
-          decimals: asset.decimals,
+          mint,
         });
 
-        return [getTokenBalanceKey(chainId, asset.contractAddress ?? ''), balance] as const;
+        return [getTokenBalanceKey(chainId, mint), balance] as const;
       }),
   );
 
@@ -1153,19 +1087,21 @@ function getTokenBalanceKey(chainId: SupportedChainId, contractAddress: string) 
 function mergeAssets(...assetGroups: AssetBalance[][]) {
   const byId = new Map<string, AssetBalance>();
 
-  assetGroups.flat().forEach((asset) => {
-    const key = asset.contractAddress ? getTokenBalanceKey(asset.chainId, asset.contractAddress) : asset.id;
-    if (!byId.has(key)) {
-      byId.set(key, asset);
-    }
+  assetGroups.forEach((assets) => {
+    assets.forEach((asset) => {
+      const key = asset.contractAddress ? getTokenBalanceKey(asset.chainId, asset.contractAddress) : asset.id;
+      if (!byId.has(key)) {
+        byId.set(key, asset);
+      }
+    });
   });
 
   return [...byId.values()];
 }
 
-function getLiveAssetPriceUsd(asset: AssetBalance, liveBnbPriceUsd: number | null) {
-  if (asset.type === 'native' && asset.chainId === 56 && liveBnbPriceUsd) {
-    return liveBnbPriceUsd;
+function getLiveAssetPriceUsd(asset: AssetBalance, liveSolPriceUsd: number | null) {
+  if (asset.type === 'native' && liveSolPriceUsd) {
+    return liveSolPriceUsd;
   }
 
   return asset.priceUsd;
@@ -1217,21 +1153,6 @@ function isActivityForWallet(activity: WalletActivity, walletAddress: string) {
   return [activity.from, activity.to, activity.counterparty].some((address) => Boolean(address && isSameAddress(address, walletAddress)));
 }
 
-function pickPrimaryTokenTransfer(transfers: TokenTransferSummary[], walletAddress: string | null) {
-  if (transfers.length === 0) {
-    return null;
-  }
-
-  if (!walletAddress) {
-    return transfers[0];
-  }
-
-  return (
-    transfers.find((transfer) => isSameAddress(transfer.from, walletAddress) || isSameAddress(transfer.to, walletAddress)) ??
-    transfers[0]
-  );
-}
-
 function applyPendingDebits({
   activeWallet,
   amount,
@@ -1261,9 +1182,7 @@ function applyPendingDebits({
       nextDebits[debitKey] = (nextDebits[debitKey] ?? 0) + debit.amount;
     });
 
-    return {
-      ...writeAndReturn(assetDebitsKey, nextDebits),
-    };
+    return writeAndReturn(assetDebitsKey, nextDebits);
   });
 }
 
@@ -1309,7 +1228,7 @@ function getPendingMeta(activity: WalletActivity, checkedAt: string) {
   const ageMs = getActivityAgeMs(activity, checkedAt);
   const pendingNotice =
     ageMs >= stalePendingMs
-      ? 'Pending for over 1 hour. Check BscScan before sending again.'
+      ? 'Pending for over 1 hour. Check Solana Explorer before sending again.'
       : ageMs >= slowPendingMs
         ? 'Confirmation is taking longer than usual.'
         : undefined;
@@ -1355,7 +1274,6 @@ async function runPreflightChecks({
   asset,
   chainId,
   nativeBalance,
-  recipient,
 }: {
   activeWallet: WalletAccount;
   amount: string;
@@ -1365,116 +1283,13 @@ async function runPreflightChecks({
   recipient: string;
 }) {
   const freshNativeBalance = (await getNativeBalance(activeWallet.address, chainId)) ?? nativeBalance;
-  const estimatedFee = getGasReserveBnb(
-    (await estimateTransferFee({
-      amount,
-      asset,
-      chainId,
-      from: activeWallet.address,
-      recipient,
-    }).catch(() => null)) ?? (asset.type === 'native' ? nativeTransferGasFallbackBnb : bep20TransferGasFallbackBnb),
-  );
+  const estimatedFee = getGasReserveBnb((await estimateTransferFee(chainId).catch(() => null)) ?? nativeTransferGasFallbackBnb);
 
-  if (asset.type === 'native' && isAmountWithGasGreaterThanBalance(amount, estimatedFee, freshNativeBalance)) {
-    throw new Error(`Leave enough ${supportedChains[chainId].nativeCurrency.symbol} for gas.`);
-  }
-
-  if (asset.type === 'bep20') {
-    if (!asset.contractAddress) {
-      throw new Error('Token contract is missing.');
-    }
-
-    if (isAmountGreaterThanBalance(String(estimatedFee), freshNativeBalance, 18)) {
-      throw new Error(`Insufficient ${supportedChains[chainId].nativeCurrency.symbol} for gas.`);
-    }
-
-    const tokenBalance = await getTokenBalance({
-      address: activeWallet.address,
-      chainId,
-      contractAddress: asset.contractAddress,
-      decimals: asset.decimals,
-    });
-
-    if (tokenBalance !== null && isAmountGreaterThanBalance(amount, tokenBalance, asset.decimals)) {
-      throw new Error(`Insufficient ${asset.symbol} balance.`);
-    }
-
-    const simulation = await simulateBep20Transfer({
-      amount,
-      asset,
-      chainId,
-      from: activeWallet.address,
-      recipient,
-    });
-
-    if (!simulation.ok) {
-      throw new Error(simulation.error ?? `${asset.symbol} transfer would fail.`);
-    }
+  if (asset.type === 'native' && Number(amount) + estimatedFee > freshNativeBalance) {
+    throw new Error(`Leave enough ${supportedChains[chainId].nativeCurrency.symbol} for network fee.`);
   }
 
   return estimatedFee;
-}
-
-async function ensureProviderChain(provider: Eip1193Provider, chain: ChainConfig) {
-  const expectedChainId = `0x${chain.id.toString(16)}`;
-  const currentChainId = await provider.request({ method: 'eth_chainId' }).catch(() => null);
-
-  if (typeof currentChainId === 'string' && currentChainId.toLowerCase() === expectedChainId.toLowerCase()) {
-    return;
-  }
-
-  try {
-    await provider.request({
-      method: 'wallet_switchEthereumChain',
-      params: [{ chainId: expectedChainId }],
-    });
-  } catch {
-    try {
-      await provider.request({
-        method: 'wallet_addEthereumChain',
-        params: [
-          {
-            blockExplorerUrls: [chain.explorerBaseUrl],
-            chainId: expectedChainId,
-            chainName: chain.name,
-            nativeCurrency: chain.nativeCurrency,
-            rpcUrls: [chain.rpcUrl],
-          },
-        ],
-      });
-    } catch {
-      throw new Error(`Switch wallet to ${chain.shortName}.`);
-    }
-  }
-}
-
-async function getBep20TransactionParams({
-  amount,
-  asset,
-  chainId,
-  from,
-  recipient,
-}: {
-  amount: string;
-  asset: AssetBalance;
-  chainId: SupportedChainId;
-  from: string;
-  recipient: string;
-}) {
-  const token = asset.contractAddress ? toEvmAddress(asset.contractAddress) : null;
-  const data = await encodeBep20Transfer(recipient, amount, asset.decimals);
-
-  if (!token || !data) {
-    throw new Error('Token transfer is not ready.');
-  }
-
-  return {
-    chainId: `0x${chainId.toString(16)}`,
-    data,
-    from,
-    to: token,
-    value: '0x0',
-  };
 }
 
 function readStoredValue<T>(key: string): T | null {

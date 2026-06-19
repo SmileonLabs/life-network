@@ -98,7 +98,7 @@ const styles = StyleSheet.create({
     bottom: -66,
     height: 132,
     borderRadius: 100,
-    backgroundColor: 'rgba(68, 217, 255, 0.1)',
+    backgroundColor: 'rgba(194, 216, 254, 0.1)',
     transform: [{ rotate: '-4deg' }],
   },
   waveTwo: {
@@ -108,7 +108,7 @@ const styles = StyleSheet.create({
     bottom: -38,
     height: 110,
     borderRadius: 100,
-    backgroundColor: 'rgba(184, 255, 92, 0.1)',
+    backgroundColor: 'rgba(170, 183, 255, 0.1)',
     transform: [{ rotate: '6deg' }],
   },
   topRule: {
@@ -136,8 +136,8 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     borderRadius: radius.round,
     borderWidth: 1,
-    borderColor: 'rgba(184, 255, 92, 0.26)',
-    backgroundColor: 'rgba(184, 255, 92, 0.08)',
+    borderColor: 'rgba(170, 183, 255, 0.26)',
+    backgroundColor: 'rgba(170, 183, 255, 0.08)',
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
   },

@@ -5,6 +5,7 @@ import { colors, spacing } from '@/shared/theme/tokens';
 import { ActivityListRow } from '@/shared/ui/activity-list-row';
 import { AppText } from '@/shared/ui/app-text';
 import { Badge } from '@/shared/ui/badge';
+import { formatShortDate } from '@/shared/utils/format';
 
 type ActivityListProps = {
   activities: WalletActivity[];
@@ -23,7 +24,7 @@ export function ActivityList({ activities, title = 'Recent activity' }: Activity
             {activities.length} confirmed items
           </AppText>
         </View>
-        <Badge label="BscScan ready" tone="violet" />
+        <Badge label="Solana Explorer ready" tone="violet" />
       </View>
       <View style={styles.list}>
         {groups.map((group) => (
@@ -69,10 +70,7 @@ function getDateLabel(timestamp: string) {
     return 'Yesterday';
   }
 
-  return activityDate.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
+  return formatShortDate(activityDate);
 }
 
 const styles = StyleSheet.create({

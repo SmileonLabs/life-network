@@ -64,8 +64,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(184, 255, 92, 0.32)',
-    backgroundColor: 'rgba(184, 255, 92, 0.11)',
+    borderColor: 'rgba(170, 183, 255, 0.32)',
+    backgroundColor: 'rgba(170, 183, 255, 0.11)',
   },
   copy: {
     flex: 1,
